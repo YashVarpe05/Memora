@@ -1,0 +1,39 @@
+name: memora
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: memora-db
+    environment:
+      POSTGRES_USER: memora
+      POSTGRES_PASSWORD: memora
+      POSTGRES_DB: memora
+    # Host port 5433 — 5432 is taken by the local Windows Postgres service.
+    ports:
+      - "5433:5432"
+    volumes:
+      - memora-pgdata:/var/lib/postgresql/data
+      - ./infra/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memora -d memora"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: memora-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - memora-redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  memora-pgdata:
+  memora-redisdata:

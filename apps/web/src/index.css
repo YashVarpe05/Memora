@@ -1,0 +1,23 @@
+@import 'tailwindcss';
+
+/* Tailwind v4 is CSS-first: design tokens live here, not in a JS config file. */
+@theme {
+  --color-ink: #0f172a;
+  --color-accent: #38bdf8;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  /* Safe areas for the installed PWA on a phone. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+    env(safe-area-inset-left);
+}

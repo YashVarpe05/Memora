@@ -1,0 +1,44 @@
+"""Application settings. Config comes from the environment only — never hardcoded."""
+
+from functools import lru_cache
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=(".env", "../../.env"),
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+    )
+
+    app_name: str = "Memora API"
+    environment: str = "development"
+
+    database_url: str = "postgresql+asyncpg://memora:memora@localhost:5433/memora"
+    redis_url: str = "redis://localhost:6379/0"
+
+    gemini_api_key: str | None = None
+
+    jwt_secret: str = "dev-only-change-me"
+    jwt_access_ttl_minutes: int = 15
+    jwt_refresh_ttl_days: int = 30
+
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_redirect_uri: str = "http://localhost:8000/auth/google/callback"
+
+    token_encryption_key: str | None = None
+
+    # Vite dev server
+    cors_origins: list[str] = ["http://localhost:5173"]
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment.lower() == "production"
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

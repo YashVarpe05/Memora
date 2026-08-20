@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    // The portability guardrail. "lib" has no "DOM" and "types" is empty, so
+    // referencing window, document, localStorage, or any Node global is a
+    // compile error here — not a code-review catch.
+    //
+    // `pnpm -C packages/core typecheck` IS the enforcement. Do not add "DOM".
+    "lib": ["ES2022"],
+    "types": [],
+
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "skipLibCheck": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}
