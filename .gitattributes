@@ -1,0 +1,22 @@
+# One line ending everywhere. The runtime is Linux containers, and mixed endings
+# turn a one-line edit into a whole-file diff for the next person.
+* text=auto eol=lf
+
+# Binaries git must not touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.m4a binary
+*.mp3 binary
+*.wav binary
+*.woff binary
+*.woff2 binary
+
+# Generated — collapse it in PR diffs.
+openapi.json                     linguist-generated=true
+packages/core/src/types/api.ts   linguist-generated=true
+pnpm-lock.yaml                   linguist-generated=true
+apps/api/uv.lock                 linguist-generated=true
