@@ -35,6 +35,9 @@ pnpm gen:types                                # OpenAPI -> packages/core/src/typ
 - Chunks: structure-aware, 300–500 tokens, 10–15% overlap, contextual prefix before embedding.
 - Generation MUST return source chunk IDs. No citation = failed response.
 - If retrieved evidence is weak, say so. Never answer from model knowledge.
+- Commit the naive-retrieval baseline BEFORE query understanding exists. An ablation
+  table needs a number taken before the improvement, not reconstructed after it, and
+  q001/q002 failing on dense-only retrieval is a result to report, not to fix quietly.
 
 ## Security rules
 - ALL database access goes through the repository layer, which injects the server-derived

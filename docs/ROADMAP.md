@@ -10,12 +10,17 @@ in the week their phase starts — see the note at the bottom.
 | Track | Owner | Done when |
 |---|---|---|
 | Corpora + gold set | all four | `data/corpus/` has 15-20 real files each, `docs/GOLD.jsonl` rewritten, eval prints `PASS` |
+| Google OAuth setup | backend | Consent screen configured, scopes declared, test users added. **Start today** |
 | OCR benchmark | ingestion | CER table for PaddleOCR vs Tesseract vs Gemini Flash vision over 20 images, measured with `jiwer` |
 | UML | docs | Six diagrams. The ingestion and query **sequence** diagrams are the two that carry weight |
 | PWA shell | frontend | Layout, routing, tokens, chat UI against mocked responses, typed from `openapi.json` |
 
 Everyone writes queries against **someone else's** corpus. That separation is the answer
 when an examiner asks whether the same person designed the test and the system.
+
+OAuth setup is an hour of clicking with unpredictable lead time — Google sometimes sits
+on a consent screen for days with no visible reason. It blocks nobody, so it starts now
+rather than being discovered in Week 10.
 
 ---
 
@@ -27,15 +32,40 @@ when an examiner asks whether the same person designed the test and the system.
 | 2 | Schema + RLS + auth | Every user-owned table has its RLS policy in the same migration, with a cross-user test |
 | 3 | **Query understanding** | Two-stage retrieval from PRODUCT.md. `q001` and `q002` start passing |
 | 4 | Ingestion pipeline | OCR, Whisper, arq workers, progress reporting |
-| 5 | Frontend for real | Streaming chat, citation hover, click-to-source with the span highlighted |
 | 6 | Gmail connector | Live ingest from Gmail. OAuth stays in Testing mode with test users |
+| 5 | Frontend for real | Streaming chat, citation hover, click-to-source with the span highlighted |
+
+**Phase 6 runs before phase 5, deliberately.** Numbers kept as-is so they still match
+how the phases are referred to elsewhere.
+
+### Why the connector jumps the frontend
+
+Gmail is on the never-cut list but was scheduled behind the two phases most likely to
+overrun. Pulling OAuth setup forward removes the unpredictable wait; resequencing removes
+the schedule risk. They solve different problems, so both apply.
+
+It also gives a better fallback shape. If phase 5 gets squeezed, the demo is a slightly
+rough frontend over a working connector — which still proves the thesis. The reverse does
+not: a polished UI over upload-only is the NotebookLM problem, dressed better.
 
 ### Protect phase 3
 
 It is the difference between Memora and a document chatbot, and it is the phase most
-likely to get squeezed when 4 and 5 run long. A pipeline that goes straight to vector
-similarity fails `q001`, `q002` and `q004` while looking excellent on generic content
-questions — which is the failure that looks like success right up until the defence.
+likely to get squeezed when the phases around it run long. A pipeline that goes straight
+to vector similarity fails `q001`, `q002` and `q004` while looking excellent on generic
+content questions — the failure that looks like success right up until the defence.
+
+**Phase 3 does not start until the naive baseline is recorded and committed.** Run the
+gold set against phase 1/2 retrieval — dense-only, no query understanding — and commit
+the numbers, including `q001` and `q002` failing. Two reasons:
+
+- An ablation table needs a number taken *before* the improvement, not reconstructed
+  after it. Build phase 3 first and there is nothing to compare against.
+- A committed baseline is timestamped. A baseline re-run later, after the pipeline has
+  quietly changed, is not a baseline.
+
+Those failures are a result worth reporting, not an embarrassment to fix before anyone
+sees. They are the evidence that query understanding was necessary.
 
 ### Cut order, from PRODUCT.md
 
@@ -43,14 +73,6 @@ reranking -> query transformation -> extra connectors -> entity resolution -> Re
 
 **Never cut:** Gmail connector, query understanding, citations, per-user isolation, the
 evaluation harness.
-
-### Open risk: phase 6 is non-negotiable but scheduled last
-
-Gmail sits after the two phases most likely to overrun, yet it is on the never-cut list.
-PRODUCT.md is explicit that upload-only makes this NotebookLM. Two mitigations, whichever
-suits: pull the OAuth consent screen and test-user setup forward into any phase (it is
-configuration, not code, and has lead time), or move the connector ahead of phase 5 so
-the demo-critical path finishes before the polish work starts.
 
 ---
 
