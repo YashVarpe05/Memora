@@ -53,8 +53,18 @@ class Report:
     missing_sources: dict[str, list[str]] = field(default_factory=dict)
 
     @property
+    def missing_types(self) -> list[str]:
+        counts = Counter(r.type for r in self.rows)
+        return sorted(t for t in KNOWN_TYPES if not counts.get(t))
+
+    @property
     def ok(self) -> bool:
-        return not self.schema_errors and not self.missing_sources and len(self.rows) >= MIN_ROWS
+        return (
+            not self.schema_errors
+            and not self.missing_sources
+            and not self.missing_types
+            and len(self.rows) >= MIN_ROWS
+        )
 
 
 def load(path: Path) -> tuple[list[GoldRow], list[str]]:
@@ -165,9 +175,8 @@ def render(report: Report, corpus: Path) -> None:
         print("  NOT READY")
         if len(rows) < MIN_ROWS:
             print(f"    - {len(rows)} queries, target is {MIN_ROWS}+")
-        empty = [t for t in KNOWN_TYPES if not counts.get(t)]
-        if empty:
-            print(f"    - no coverage for: {', '.join(sorted(empty))}")
+        if report.missing_types:
+            print(f"    - no coverage for: {', '.join(report.missing_types)}")
         if report.missing_sources:
             print(f"    - {len(report.missing_sources)} row(s) point at files not in {corpus}")
             print("      Step 1 is unfinished: drop your real files in, then fix these names.")

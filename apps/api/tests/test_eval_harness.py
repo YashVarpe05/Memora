@@ -1,5 +1,6 @@
 """The eval harness must fail loudly while the gold set is still placeholders."""
 
+import json
 from pathlib import Path
 
 from memora.eval.retrieval import check_corpus, load
@@ -60,3 +61,38 @@ def test_present_corpus_file_passes(tmp_path):
     corpus.mkdir()
     (corpus / "real.pdf").write_bytes(b"%PDF-1.4")
     assert check_corpus(rows, corpus) == {}
+
+
+def test_full_type_coverage_is_required_to_pass(tmp_path):
+    """20 well-formed rows still fail if a query type is absent.
+
+    The harness printed type counts but never gated on them, so a set with no
+    must_refuse row passed - and refusal is one of the two types the results
+    table actually turns on.
+    """
+    from memora.eval.retrieval import KNOWN_TYPES, Report
+
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    partial = sorted(KNOWN_TYPES - {"must_refuse"})
+    lines = []
+    for i in range(20):
+        name = f"f{i:02d}.pdf"
+        (corpus / name).write_bytes(b"%PDF-1.4")
+        lines.append(
+            json.dumps(
+                {
+                    "id": f"q{i:03d}",
+                    "query": "q",
+                    "type": partial[i % len(partial)],
+                    "expected_sources": [name],
+                }
+            )
+        )
+    gold = _write(tmp_path, *lines)
+
+    rows, errors = load(gold)
+    report = Report(rows=rows, schema_errors=errors, missing_sources=check_corpus(rows, corpus))
+
+    assert report.missing_types == ["must_refuse"]
+    assert not report.ok
