@@ -3,13 +3,16 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.26.1",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "pnpm -C apps/web dev",
     "build": "pnpm -C packages/core typecheck && pnpm -C apps/web build",
     "typecheck": "pnpm -r typecheck",
     "up": "docker compose up -d",
     "down": "docker compose down",
-    "gen:types": "pnpm -C apps/web gen:types"
+    "gen:types": "pnpm gen:openapi && pnpm -C apps/web exec openapi-typescript ../../openapi.json -o ../../packages/core/src/types/api.ts",
+    "gen:openapi": "uv --directory apps/api run python -m memora.openapi"
   }
 }

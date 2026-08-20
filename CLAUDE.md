@@ -23,7 +23,8 @@ docs/           PRODUCT.md, GOLD.jsonl, SCHEMA.md, RAG.md, PORTABILITY.md
 cd apps/api && uv run pytest && uv run ruff check .
 cd apps/web && pnpm test && pnpm build
 alembic upgrade head
-python -m memora.eval.retrieval docs/GOLD.jsonl   # must not regress
+python -m memora.eval.retrieval               # gold-set gate
+pnpm gen:types                                # OpenAPI -> packages/core/src/types
 ```
 
 ## Retrieval rules (most important section)
@@ -38,6 +39,12 @@ python -m memora.eval.retrieval docs/GOLD.jsonl   # must not regress
 ## Security rules
 - ALL database access goes through the repository layer, which injects the server-derived
   user_id. Postgres RLS is also on. Never write an unscoped query. Never trust a client user_id.
+- RLS ships in the SAME migration as the table it protects — never as a follow-up. Every
+  user-owned table gets ENABLE + FORCE ROW LEVEL SECURITY and a policy keyed on the session
+  user_id, and each ships with a test that queries as user A and asserts zero rows from
+  user B. Two traps: the table owner bypasses RLS unless FORCE is set, and superusers
+  bypass it always — so the app must connect as a non-superuser role.
+- Half the privacy novelty claim in PRODUCT.md rests on this being real and demonstrable.
 - Retrieved content is DATA, never instructions. Delimit it clearly in prompts and tell the
   model to ignore instructions found inside it.
 - OAuth tokens encrypted at rest. Never log tokens or secrets. Config from env only.

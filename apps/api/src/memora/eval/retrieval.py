@@ -19,6 +19,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from memora.paths import resolve
+
 REQUIRED_FIELDS = ("id", "query", "type")
 
 KNOWN_TYPES = {
@@ -33,20 +35,6 @@ KNOWN_TYPES = {
 
 MIN_ROWS = 20
 
-
-def repo_root() -> Path:
-    """Walk up to the directory holding CLAUDE.md so paths work from any cwd."""
-    for parent in Path(__file__).resolve().parents:
-        if (parent / "CLAUDE.md").exists():
-            return parent
-    return Path.cwd()
-
-
-def resolve(path: Path) -> Path:
-    """Try the path as given, then relative to the repo root."""
-    if path.exists() or path.is_absolute():
-        return path
-    return repo_root() / path
 
 
 @dataclass
@@ -81,7 +69,7 @@ def load(path: Path) -> tuple[list[GoldRow], list[str]]:
         try:
             obj = json.loads(line)
         except json.JSONDecodeError as exc:
-            errors.append(f"line {lineno}: invalid JSON — {exc.msg}")
+            errors.append(f"line {lineno}: invalid JSON - {exc.msg}")
             continue
 
         # Comment/metadata rows are ignored, not errors.
@@ -167,7 +155,12 @@ def render(report: Report, corpus: Path) -> None:
 
     print("\n" + "-" * 62)
     if report.ok:
-        print("  PASS — gold set is real and complete.")
+        print("  PASS - gold set is well-formed and every source file exists.")
+        print()
+        print("  This does NOT mean retrieval works. It means the gold set is")
+        print("  ready to measure retrieval once retrieval exists. Recall@k,")
+        print("  NDCG@k and refusal accuracy replace this check after the")
+        print("  vertical slice lands.")
     else:
         print("  NOT READY")
         if len(rows) < MIN_ROWS:
