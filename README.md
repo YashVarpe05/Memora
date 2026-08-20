@@ -75,6 +75,16 @@ data/corpus/    your real test files (gitignored)
 infra/db/init/  pgvector + pg_trgm extensions, run on first container start
 ```
 
+## Two database roles
+
+`memora_app` is what the API connects as: NOSUPERUSER, NOBYPASSRLS, owns nothing.
+`memora` owns the schema and runs migrations. This split exists so RLS policies actually
+bind — superusers bypass RLS unconditionally, and a table's owner bypasses it unless
+FORCE is set. Point `DATABASE_URL` at `memora` and every policy silently stops enforcing.
+
+`/health/ready` reports which role is connected. `tests/test_rls_preconditions.py`
+fails the build if it can bypass.
+
 ## Ports
 
 | service | port | note |

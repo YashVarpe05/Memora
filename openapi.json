@@ -38,6 +38,10 @@
             "title": "Redis",
             "type": "string"
           },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -47,7 +51,8 @@
           "status",
           "database",
           "pgvector",
-          "redis"
+          "redis",
+          "role"
         ],
         "title": "ReadinessResponse",
         "type": "object"

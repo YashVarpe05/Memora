@@ -17,7 +17,8 @@ with contextlib.suppress(ModuleNotFoundError):
     import memora.db.models  # noqa: F401
 
 config = context.config
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Migrations run as the owner role, not the restricted runtime role.
+config.set_main_option("sqlalchemy.url", get_settings().migration_database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -65,6 +65,8 @@ export interface components {
             pgvector: string;
             /** Redis */
             redis: string;
+            /** Role */
+            role: string;
             /** Status */
             status: string;
         };

@@ -20,6 +20,7 @@ class ReadinessResponse(BaseModel):
     database: str
     pgvector: str
     redis: str
+    role: str
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -36,6 +37,7 @@ async def health(settings: SettingsDep) -> HealthResponse:
 async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResponse:
     """Readiness. Verifies Postgres, the vector extension, and Redis are actually reachable."""
     database = pgvector = redis_state = "down"
+    role = "unknown"
 
     try:
         await session.execute(text("SELECT 1"))
@@ -44,6 +46,15 @@ async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResp
             text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
         )
         pgvector = "installed" if found.scalar_one_or_none() else "missing"
+        name, bypasses = (
+            await session.execute(
+                text(
+                    "SELECT current_user, rolsuper OR rolbypassrls "
+                    "FROM pg_roles WHERE rolname = current_user"
+                )
+            )
+        ).one()
+        role = f"{name} (BYPASSES RLS)" if bypasses else f"{name} (rls enforced)"
     except Exception:  # noqa: BLE001 - probe reports state, never raises
         pass
 
@@ -62,5 +73,9 @@ async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResp
     healthy = database == "up" and pgvector == "installed" and redis_state == "up"
     overall = "ready" if healthy else "degraded"
     return ReadinessResponse(
-        status=overall, database=database, pgvector=pgvector, redis=redis_state
+        status=overall,
+        database=database,
+        pgvector=pgvector,
+        redis=redis_state,
+        role=role,
     )

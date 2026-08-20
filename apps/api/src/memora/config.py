@@ -16,7 +16,12 @@ class Settings(BaseSettings):
     app_name: str = "Memora API"
     environment: str = "development"
 
-    database_url: str = "postgresql+asyncpg://memora:memora@localhost:5433/memora"
+    # Runtime connection. memora_app is NOSUPERUSER + NOBYPASSRLS, so RLS policies
+    # actually apply. Never point this at the owner role.
+    database_url: str = "postgresql+asyncpg://memora_app:memora_app@localhost:5433/memora"
+
+    # Migrations only. Owns the schema, and in the dev image is a superuser.
+    migration_database_url: str = "postgresql+asyncpg://memora:memora@localhost:5433/memora"
     redis_url: str = "redis://localhost:6379/0"
 
     gemini_api_key: str | None = None
