@@ -15,7 +15,7 @@ FastAPI + Pydantic v2 + SQLAlchemy 2.0 async + Alembic · PostgreSQL 16 + pgvect
 apps/api        FastAPI — ALL business logic
 apps/web        React PWA — thin UI shell
 packages/core   platform-neutral TS (no DOM types)
-docs/           PRODUCT.md, GOLD.jsonl, SCHEMA.md, RAG.md, PORTABILITY.md
+docs/           PRODUCT.md, ROADMAP.md, GOLD.jsonl, SCHEMA.md, RAG.md, PORTABILITY.md
 ```
 
 ## Commands that prove a change
