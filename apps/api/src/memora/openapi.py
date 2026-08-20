@@ -3,8 +3,8 @@
 CLAUDE.md: API types are GENERATED from OpenAPI, never hand-written. This is the
 first half of `pnpm gen:types`.
 
-It builds the app in-process, so type generation needs no running server — four
-people can regenerate types offline, and CI can check the contract without booting
+It builds the app in-process, so type generation needs no running server --- four
+people can regenerate offline, and CI can check the contract without booting
 anything.
 
     uv run python -m memora.openapi           # writes <repo>/openapi.json
@@ -18,17 +18,21 @@ from pathlib import Path
 from memora.main import create_app
 from memora.paths import repo_root
 
+# The repo is eol=lf. Writing LF explicitly keeps regeneration byte-stable on
+# Windows, so `pnpm gen:types` does not leave a whitespace-only diff behind.
+NEWLINE = "\n"
+
 
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
-    payload = json.dumps(create_app().openapi(), indent=2, sort_keys=True) + "\n"
+    payload = json.dumps(create_app().openapi(), indent=2, sort_keys=True) + NEWLINE
 
     if args and args[0] == "-":
         sys.stdout.write(payload)
         return 0
 
     target = Path(args[0]) if args else repo_root() / "openapi.json"
-    target.write_text(payload, encoding="utf-8")
+    target.write_text(payload, encoding="utf-8", newline=NEWLINE)
     sys.stderr.write(f"wrote {target}\n")
     return 0
 
