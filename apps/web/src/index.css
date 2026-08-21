@@ -1,9 +1,57 @@
 @import 'tailwindcss';
 
-/* Tailwind v4 is CSS-first: design tokens live here, not in a JS config file. */
+/* Design tokens.
+ *
+ * Tailwind v4 is CSS-first, so tokens live here rather than in a JS config or a
+ * separate package. @theme entries become utilities automatically: --color-surface
+ * gives bg-surface, text-surface, border-surface.
+ *
+ * Portability: these are plain CSS custom properties. A Capacitor build serves the
+ * same stylesheet, so there is nothing to port.
+ */
 @theme {
-  --color-ink: #0f172a;
-  --color-accent: #38bdf8;
+  --color-canvas: oklch(99% 0.003 250);
+  --color-surface: oklch(100% 0 0);
+  --color-surface-sunken: oklch(96.5% 0.005 250);
+  --color-line: oklch(91% 0.008 250);
+
+  --color-ink: oklch(22% 0.02 260);
+  --color-ink-muted: oklch(52% 0.015 260);
+  --color-ink-faint: oklch(68% 0.012 260);
+
+  --color-accent: oklch(58% 0.16 250);
+  --color-accent-soft: oklch(95% 0.03 250);
+  --color-accent-ink: oklch(100% 0 0);
+
+  --color-warn: oklch(62% 0.15 65);
+  --color-warn-soft: oklch(96% 0.04 75);
+
+  --radius-card: 0.875rem;
+
+  /* Bottom nav height, used to pad scroll containers so content clears it. */
+  --spacing-navbar: 3.75rem;
+}
+
+@layer theme {
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --color-canvas: oklch(17% 0.015 260);
+      --color-surface: oklch(21% 0.018 260);
+      --color-surface-sunken: oklch(14% 0.012 260);
+      --color-line: oklch(30% 0.02 260);
+
+      --color-ink: oklch(96% 0.005 250);
+      --color-ink-muted: oklch(72% 0.012 255);
+      --color-ink-faint: oklch(55% 0.015 258);
+
+      --color-accent: oklch(72% 0.14 240);
+      --color-accent-soft: oklch(28% 0.05 250);
+      --color-accent-ink: oklch(16% 0.02 260);
+
+      --color-warn: oklch(76% 0.13 70);
+      --color-warn-soft: oklch(28% 0.05 70);
+    }
+  }
 }
 
 :root {
@@ -17,7 +65,16 @@ body,
 }
 
 body {
-  /* Safe areas for the installed PWA on a phone. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
-    env(safe-area-inset-left);
+  background-color: var(--color-canvas);
+  color: var(--color-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Installed-PWA safe areas. Applied on the shell, not body, so the header can sit
+   flush against the notch while content stays clear of it. */
+@utility pt-safe {
+  padding-top: env(safe-area-inset-top);
+}
+@utility pb-safe {
+  padding-bottom: env(safe-area-inset-bottom);
 }
