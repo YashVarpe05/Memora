@@ -55,12 +55,20 @@ is still the shipped placeholder rows. See below.
 `docs/GOLD.jsonl` still holds the 8 example rows. They reference files that don't exist.
 Before the retrieval work starts:
 
-1. Put 15–20 **real** files in `data/corpus/` — PDFs professors sent you, a voice note,
+1. Put **15 real files** in `data/corpus/` — PDFs professors sent you, a voice note,
    screenshots, exported emails. It's gitignored; personal data never gets committed.
-2. Rewrite `docs/GOLD.jsonl` against those files. Target 20–30 rows, covering every `type`.
-3. Have each team member write queries against **another** member's corpus, so nobody
-   grades their own homework.
+2. Rewrite `docs/GOLD.jsonl` against them. Work backwards: open each file and ask *if I'd
+   forgotten this existed, how would I have asked for it?* That sentence is the query.
+   15 files gives 20 rows with no invention required.
+3. Cover all seven `type` values — the gate fails without `must_refuse` and `metadata_only`.
 4. Run the eval command until it prints `PASS`.
+
+This is a **solo, two-hour task**. It does not need your teammates.
+
+Later, when the team next meets, each person adds their own corpus and writes queries
+against someone *else's*. That's a credibility improvement to the eval set — the answer
+when an examiner asks whether one person wrote both the test and the system. It is not a
+prerequisite for any code, and treating it as one is what kept this blocked.
 
 Until it passes, there's no way to tell whether retrieval works.
 
@@ -102,9 +110,14 @@ the inputs exist.
 `gemini-flash` is metered and never runs unless you name it:
 `--engines gemini-flash`.
 
+**Parked.** Not on the critical path, and it needs 20 hand-written reference
+transcripts. The gate stays red until someone picks it up.
+
 **Known:** paddleocr 3.7 installs cleanly on Windows and then fails at inference with a
 oneDNN kernel error. The harness reports that once and exits 1 rather than writing an
-empty table. Run it on Linux or Colab for a paddle number.
+empty table. Don't reach for Colab — run it in a Linux container. The ingestion worker
+will be one in production, so a Windows number was measuring the wrong environment
+anyway.
 
 ## Two database roles
 

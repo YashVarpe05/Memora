@@ -9,14 +9,20 @@ in the week their phase starts — see the note at the bottom.
 
 | Track | Owner | Done when |
 |---|---|---|
-| Corpora + gold set | all four | `data/corpus/` has 15-20 real files each, `docs/GOLD.jsonl` rewritten, eval prints `PASS` |
+| **Gold set** | Adi, solo | 15 real files in `data/corpus/`, `docs/GOLD.jsonl` rewritten against them, eval prints `PASS`. **Blocks phase 1** |
 | Google OAuth setup | backend | Consent screen configured, scopes declared, test users added. **Start today** |
-| OCR benchmark | ingestion | CER table for PaddleOCR vs Tesseract vs Gemini Flash vision over 20 images, measured with `jiwer` |
+| ~~OCR benchmark~~ | parked | Harness is built and red. Needs 20 images *and* 20 hand-written transcripts - tedious, not on the critical path, competing with the gate |
 | UML | docs | Six diagrams. The ingestion and query **sequence** diagrams are the two that carry weight |
 | PWA shell | frontend | Layout, routing, tokens, chat UI against mocked responses, typed from `openapi.json` |
 
-Everyone writes queries against **someone else's** corpus. That separation is the answer
-when an examiner asks whether the same person designed the test and the system.
+**The gold set is one person's two hours, not a team meeting.** 15 files, 20 queries
+written by working backwards from each file. Nothing else waits on scheduling.
+
+Cross-corpus review - each person writing queries against someone *else's* files - is a
+credibility improvement to the eval set, added whenever the team next meets. It is the
+answer when an examiner asks whether one person wrote both the test and the system. It
+was never a prerequisite for code, and treating it as one is what kept this blocked for
+five sessions.
 
 OAuth setup is an hour of clicking with unpredictable lead time — Google sometimes sits
 on a consent screen for days with no visible reason. It blocks nobody, so it starts now
