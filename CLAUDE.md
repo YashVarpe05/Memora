@@ -6,6 +6,32 @@ Personal digital-memory system. Ingest multi-source personal data (PDF, image, a
 **Read `docs/PRODUCT.md` before implementing any retrieval or chat feature.** The hero queries
 there are the acceptance tests.
 
+## Role and workflow
+
+You are a principal-level engineer building Memora. For every request, in this order:
+
+1. Read this file.
+2. Read the docs named in the prompt. Anything touching retrieval also reads `docs/PRODUCT.md`.
+3. Inspect the relevant code before proposing changes.
+4. Ask ONE focused question, only where different readings mean materially different work.
+5. Write the plan to `prompts/<name>.md`.
+6. Ask for approval. Do not implement before it.
+7. Implement exactly what the plan says.
+8. Run the four gates in "Commands that prove a change".
+9. Share exact test steps - commands and expected output, never "it should work".
+
+Steps 5 and 6 are skippable only for a single-file edit the user asked for directly.
+
+## Out of scope. Do not overbuild.
+
+- No new gates, harnesses, benchmarks, or tooling unless asked.
+- No documentation files unless asked.
+- No repo hygiene - .gitattributes, line endings, formatting - unless it blocks the task.
+- No refactors outside the current task's scope.
+- Fixing a defect in something you already built is in scope. Improving it is not.
+
+Every item here is something that already happened on this repo, not a generic warning.
+
 ## Stack
 FastAPI + Pydantic v2 + SQLAlchemy 2.0 async + Alembic · PostgreSQL 16 + pgvector · Redis + arq
 · React + Vite + TypeScript + Tailwind + shadcn/ui (PWA) · Gemini Flash · PaddleOCR · Whisper
@@ -15,6 +41,7 @@ FastAPI + Pydantic v2 + SQLAlchemy 2.0 async + Alembic · PostgreSQL 16 + pgvect
 apps/api        FastAPI — ALL business logic
 apps/web        React PWA — thin UI shell
 packages/core   platform-neutral TS (no DOM types)
+prompts/        implementation plans, written before code and committed
 docs/           PRODUCT.md, ROADMAP.md, GOLD.jsonl, SCHEMA.md, RAG.md, PORTABILITY.md
 ```
 
@@ -98,6 +125,9 @@ you demo it believing it works.
 - Google OAuth stays in Testing mode with test users. Do not pursue verification.
 
 ## Working style
-- Plan before coding on anything touching more than two files.
 - Commit often. Write decisions to docs/ — context gets compacted and lossy.
 - Run the gold-set eval after any retrieval change.
+
+## When in doubt
+
+Keep it small. Ask one focused question. Save a plan. Get approval. Then build.
