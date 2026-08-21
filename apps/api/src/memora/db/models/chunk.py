@@ -1,0 +1,36 @@
+"""A retrievable span of one memory, with its embedding."""
+
+from __future__ import annotations
+
+import uuid
+
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy.dialects.postgresql import UUID as PgUUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from memora.config import get_settings
+from memora.db.base import Base
+
+EMBEDDING_DIMS = get_settings().embedding_dims
+
+
+class Chunk(Base):
+    __tablename__ = "chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    user_id: Mapped[uuid.UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False, index=True)
+    memory_id: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("memories.id", ondelete="CASCADE"), nullable=False
+    )
+
+    ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    # Title + nearest heading, prepended before embedding so an isolated chunk still
+    # carries where it came from. Stored separately so the cited text stays clean.
+    contextual_prefix: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMS), nullable=False)

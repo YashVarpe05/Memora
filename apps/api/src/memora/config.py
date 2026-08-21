@@ -1,6 +1,7 @@
 """Application settings. Config comes from the environment only — never hardcoded."""
 
 from functools import lru_cache
+from uuid import UUID
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -25,6 +26,17 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     gemini_api_key: str | None = None
+    gemini_model: str = "gemini-2.5-flash"
+    embedding_model: str = "gemini-embedding-001"
+    # Pinned in DDL as vector(768). gemini-embedding-001 defaults to 3072, so this
+    # is requested explicitly via output_dimensionality. Changing it needs a migration.
+    embedding_dims: int = 768
+
+    retrieval_top_k: int = 5
+
+    # Phase 1 has no auth. One server-side dev identity, injected exactly the way a
+    # real one will be - never read from a request.
+    dev_user_id: UUID = UUID("00000000-0000-4000-8000-000000000001")
 
     jwt_secret: str = "dev-only-change-me"
     jwt_access_ttl_minutes: int = 15

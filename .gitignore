@@ -22,6 +22,10 @@ dist-ssr/
 data/corpus/*
 !data/corpus/.gitkeep
 
+# Sample documents used for manual verification. Third-party PDFs, not ours to commit.
+data/samples/*
+!data/samples/.gitkeep
+
 # OCR benchmark inputs - photos of books, whiteboards, handwriting. Personal.
 data/ocr-bench/images/*
 data/ocr-bench/refs/*

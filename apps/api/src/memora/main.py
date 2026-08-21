@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from memora.api.routers import health
+from memora.api.routers import chat, health, uploads
 from memora.config import get_settings
 from memora.db.session import dispose_engine
 
@@ -36,6 +36,8 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
+    app.include_router(uploads.router)
+    app.include_router(chat.router)
     return app
 
 
