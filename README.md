@@ -75,6 +75,37 @@ data/corpus/    your real test files (gitignored)
 infra/db/init/  pgvector + pg_trgm extensions, run on first container start
 ```
 
+## OCR benchmark
+
+Settles which OCR engine goes into phase 4, with a number rather than an opinion.
+
+```bash
+cd apps/api && uv sync --group bench
+```
+```bash
+cd apps/api && uv run python -m memora.bench.ocr
+```
+
+Inputs go in `data/ocr-bench/` (gitignored - they are photos of your books and
+whiteboards):
+
+```
+images/<category>/<name>.png     the image
+refs/<category>/<name>.txt       what it actually says
+```
+
+Categories are `printed`, `book_photo`, `screenshot`, `whiteboard`, `handwritten` -
+20 images minimum, all five covered. Averaging handwriting together with printed text
+hides the only finding that matters. Like the gold-set gate, this exits non-zero until
+the inputs exist.
+
+`gemini-flash` is metered and never runs unless you name it:
+`--engines gemini-flash`.
+
+**Known:** paddleocr 3.7 installs cleanly on Windows and then fails at inference with a
+oneDNN kernel error. The harness reports that once and exits 1 rather than writing an
+empty table. Run it on Linux or Colab for a paddle number.
+
 ## Two database roles
 
 `memora_app` is what the API connects as: NOSUPERUSER, NOBYPASSRLS, owns nothing.

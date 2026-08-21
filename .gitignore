@@ -22,6 +22,12 @@ dist-ssr/
 data/corpus/*
 !data/corpus/.gitkeep
 
+# OCR benchmark inputs - photos of books, whiteboards, handwriting. Personal.
+data/ocr-bench/images/*
+data/ocr-bench/refs/*
+!data/ocr-bench/images/.gitkeep
+!data/ocr-bench/refs/.gitkeep
+
 # Eval output
 data/eval-runs/
 
