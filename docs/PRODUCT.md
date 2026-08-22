@@ -6,65 +6,182 @@
 
 ## The problem
 
-People's information is spread across tools that don't know about each other: email, cloud drives, notes, calendars, PDFs, code repos, voice recordings. Each app searches only its own silo, and only by keyword.
+You own the document. It is on one of your devices. You still cannot find it.
 
-After a few months, finding one specific thing becomes slow and frustrating — not because the thing is lost, but because you remember it the way a *person* remembers: "that PDF a professor sent," "what HR said during the internship interview." You remember **who, when, and roughly what**. You don't remember filenames, subject lines, or which app it was in.
+Aadhaar card, PAN card, 10th marksheet, admit card, fee receipt, the offer letter, the
+PDF a professor sent. Each one arrived through a different app — WhatsApp, Gmail, a
+camera roll, a downloads folder — and each app searches only its own silo, only by
+filename or keyword.
 
-**Memora AI is a system that accepts a human-shaped question and returns the right memory, with proof of where it came from.**
+Two things make this fail in exactly the wrong moment:
+
+**You remember the document, not its filename.** You think "my Aadhaar card," not
+`IMG_20240817_113244.jpg`. You remember who sent it, roughly when, and what kind of thing
+it is. Nothing on your device is indexed that way.
+
+**Most of these documents are photographs.** An Aadhaar card is a phone photo. A
+marksheet is a scan. A fee receipt is a screenshot. There is no text layer, so keyword
+search over them returns nothing — not poor results, nothing at all.
+
+**Memora accepts a human-shaped description of a document and returns the document.**
+
+---
+
+## Two layers
+
+Everything in this project sits in one of these, and they are not equally important.
+
+**Layer one — find the file.** You describe it, Memora ranks your documents and shows
+them. You recognise the right one from its thumbnail, open it, and download it. **The
+answer is the file.** This is the product.
+
+**Layer two — ask about the contents.** "What did HR say during the internship
+interview." A grounded answer with citations back into the source. This is real and it
+stays, but it is built on top of layer one, not instead of it.
+
+If layer one does not work, layer two is a chatbot over a folder.
 
 ---
 
 ## The hero queries
 
-These are the acceptance tests for the entire project. If these don't work, nothing else matters.
+These are the acceptance tests for the entire project. If these don't work, nothing else
+matters. Queries 1–5 are layer one: **success is the correct file at rank 1.**
 
 | # | Query | What makes it hard |
 |---|---|---|
-| 1 | "the PDF a professor sent" | **No content in the query at all.** This is a pure metadata lookup: sender role, file type, attachment. Vector search alone returns noise. |
-| 2 | "what HR said during the internship interview" | **Vague temporal reference.** "The internship interview" must resolve to a date range (from calendar or an email thread) before content search is meaningful. |
-| 3 | "the link someone shared about the hackathon last month" | Cross-source (chat + email), relative time, extract-a-link intent. |
-| 4 | "when did I last talk to Prof. Kulkarni about the project" | Entity resolution across sources — the same person appears with different names/emails. |
-| 5 | "what's my bank account number" (when it was never stored) | **Must refuse.** Answering from model knowledge instead of user data is a failure. |
+| 1 | "find my Aadhaar card" | A phone photo with **no text layer**. Without OCR the system cannot find it at all — not badly, at all. The query also carries no content signal beyond the kind of document it is. |
+| 2 | "the PDF a professor sent" | **No content in the query.** Pure metadata: sender role, file type, attachment. Vector search alone returns noise. |
+| 3 | "the fee receipt from last semester" | **Vague temporal reference.** "Last semester" must resolve to a date range before any content search is meaningful. |
+| 4 | "the screenshot with the database error" | Remembered by **how it looked**. The text exists only inside pixels, and the description is approximate. |
+| 5 | "my 10th marksheet", with three marksheets stored | **Disambiguation.** Several documents plausibly match. The right one has to be first, not somewhere in a pile. |
+| 6 | "find my passport", never stored | **Must refuse.** See the refusal rule below. |
 
-**The insight these encode:** most personal-memory queries are *metadata queries wearing semantic clothing*. Retrieval must understand the question and filter first, then search semantically inside what's left. A pipeline that goes straight to vector similarity will fail queries 1, 2, and 4 while looking great on generic content questions.
+Layer two keeps its own case: **"what did HR say during the internship interview"** — an
+answer about content, with citations, only after the user asks a question rather than
+searches for a thing.
+
+**The insight these encode:** most personal-document queries are *metadata and identity
+queries wearing semantic clothing*. Retrieval must understand the description and filter
+first, then search semantically inside what is left. A pipeline that goes straight to
+vector similarity fails 1, 2, 3 and 5 while looking excellent on generic content
+questions.
+
+---
+
+## The refusal rule
+
+**Refusal is about absence from the corpus. It is never about the sensitivity of the
+topic.**
+
+- Returning the user's own stored Aadhaar card is **success**. It is their document, in
+  their account, and finding it is the entire point of the product.
+- Producing an Aadhaar number, a passport number, or a bank account number that was
+  never stored is **failure**, whether it comes from model knowledge or from a guess.
+
+A `must_refuse` gold row therefore describes a document that genuinely is not in the
+corpus. It never describes a document that is present but sensitive. Encoding the
+sensitivity version instead looks correct in review and fails on stage the first time
+someone searches for their own ID.
 
 ---
 
 ## Retrieval contract
 
-Every query goes through two stages:
+Every query goes through two stages.
 
-**Stage 1 — Query understanding.** One LLM call converts the natural-language question into:
+**Stage 1 — Query understanding.** One LLM call converts the natural-language
+description into:
 
 ```json
 {
   "filters": {
+    "document_type": "aadhaar | pan | marksheet | receipt | letter | null",
     "sender": "professor | <name> | null",
-    "source_type": ["email", "pdf", "audio", "note", "calendar", "code"],
+    "source_type": ["email", "pdf", "image", "audio", "note", "calendar"],
     "date_range": { "from": "...", "to": "..." },
     "has_attachment": true,
     "entities": ["..."]
   },
   "semantic_query": "the part that actually needs meaning-based search",
-  "needs_time_resolution": "the internship interview"
+  "needs_time_resolution": "last semester"
 }
 ```
 
-If `needs_time_resolution` is set, resolve the phrase against calendar events and email threads **before** retrieving.
+If `needs_time_resolution` is set, resolve the phrase against calendar events and email
+threads **before** retrieving.
 
-**Stage 2 — Filtered hybrid retrieval.** Apply filters, then dense + BM25 with RRF fusion inside the filtered set. Return chunks with parent context.
+**Stage 2 — Filtered hybrid retrieval, ranked by document.** Apply filters, then dense +
+BM25 with RRF fusion inside the filtered set. Chunk scores aggregate up to a **document**
+score. Two chunks from one PDF are one result, not two. Return ranked documents, each
+carrying its best-matching chunk as evidence.
 
-**Never skip stage 1.** It is the difference between this project and a document chatbot.
+**Never skip stage 1.** It is the difference between this project and a search box.
+
+---
+
+## Architectural rules
+
+These are properties of the product, not implementation preferences. A future change
+that violates one of them is a regression even if every test passes.
+
+**1. Layer one runs without an LLM.** `/search` ranks and returns documents with **no
+generation call**. Document content enters a model prompt only when the user explicitly
+asks a question about it in layer two.
+
+This is a privacy property, not a performance optimisation. It is what allows someone to
+find their Aadhaar card without any part of that card entering a third party's prompt.
+Do not add a generation step to `/search` to "improve" it.
+
+**2. Identifiers are masked before anything leaves the machine.** OCR of an identity
+document produces the identity number as plain text, and that text is then embedded —
+today via a hosted API. Aadhaar (12 digits) and PAN (`ABCDE1234F`) patterns are masked
+before embedding. The document stays findable by type, issuer, date and context; the
+number itself never leaves local storage.
+
+**Required for phase 4 ingestion.** Not built yet, and OCR must not ship without it.
 
 ---
 
 ## What "working" means
 
-- Every answer cites specific source memories. Clicking a citation opens the source with the exact span highlighted.
-- When retrieval is weak, the system says it doesn't have that — it never fills gaps from model knowledge.
-- Memories organize themselves. The user files nothing: entities, tags, and timeline are extracted automatically.
-- A user can only ever retrieve their own memories. Enforced at the database, not just in application code.
+**Layer one**
+
+- The correct file is at **rank 1**.
+- Results show thumbnails, so the user recognises the document by looking at it.
+- The file opens in-app: page through a PDF, zoom an image.
+- The file downloads.
+- When the document is not in the corpus, the system says so and offers nothing.
+
+**Layer two**
+
+- Every answer cites specific source documents. Clicking a citation opens the source with
+  the exact span highlighted.
+- When retrieval is weak, the system says it doesn't have that. It never fills gaps from
+  model knowledge.
+
+**Both**
+
+- Documents organize themselves. The user files nothing: type, entities, dates and
+  timeline are extracted on ingest.
+- A user can only ever retrieve their own documents. Enforced at the database, not just
+  in application code.
 - Deleting the account removes rows, vectors, and files — and this is demonstrable.
+
+---
+
+## How it is measured
+
+| metric | scope | role |
+|---|---|---|
+| **Recall@1** | layer one | **Primary.** Was the right file first? |
+| **MRR@10** | layer one | Secondary. How far down was it when it wasn't first? |
+| **Refusal accuracy** | layer one | Did absent documents get refused rather than substituted? |
+| Answer faithfulness | layer two | Secondary. Judged, therefore less reliable — never the headline number. |
+
+Recall@1 is a hard number. Either the Aadhaar card came back first or it did not. That
+is the metric to report and defend, and it is the reason document retrieval is a better
+framing for this project than chat: it replaces a judged score with a counted one.
 
 ---
 
@@ -72,20 +189,32 @@ If `needs_time_resolution` is set, resolve the phrase against calendar events an
 
 - Not a note-taking app. Memora doesn't ask users to write anything.
 - Not an always-on screen recorder. Capture is deliberate and consented.
-- Not a general chatbot. If the answer isn't in the user's memories, the correct response is "I don't have that."
-- Not a document QA tool. Upload-only would make this NotebookLM. **At least one live connector (Gmail) is required** — the problem being solved is that data is already scattered, so requiring manual gathering sidesteps the problem rather than fixing it.
+- Not a general chatbot. If the document isn't in the user's corpus, the correct response
+  is "I don't have that."
+- Not a document QA tool. Upload-only would make this NotebookLM. **At least one live
+  connector (Gmail) is required** — the problem being solved is that documents are
+  already scattered, so requiring manual gathering sidesteps the problem rather than
+  fixing it.
 
 ---
 
 ## Honest novelty claims
 
-Do **not** claim novelty on: RAG over personal data, citations, multimodal ingestion, hybrid vector+relational storage. All of these shipped in products before 2026.
+Do **not** claim novelty on: RAG over personal data, citations, multimodal ingestion,
+hybrid vector+relational storage, OCR. All of these shipped in products before 2026.
 
 Defensible claims:
 
-1. **Query understanding for personal memory** — resolving vague human references ("during the interview," "a professor") into retrieval constraints. This has no good public benchmark, which is the opportunity.
-2. **Privacy-first per-owner isolation** — database-enforced, with working export and verifiable erasure.
-3. **Self-organizing memory** — timeline and entity graph built without user filing.
+1. **Description-to-document retrieval for personal archives** — resolving how a person
+   remembers a document ("my Aadhaar card," "a professor sent it," "last semester") into
+   retrieval constraints over their own files. Measured by Recall@1, which has no good
+   public benchmark for this task. That gap is the opportunity.
+2. **Privacy-first by construction** — per-owner isolation enforced in the database,
+   layer-one retrieval that never sends a document to a model, and identifier masking
+   before embedding. "The Aadhaar number never leaves the device" is a claim an examiner
+   can watch being demonstrated.
+3. **Self-organizing archive** — document type, timeline and entity graph built without
+   the user filing anything.
 
 Claims 1 and 2 can both be demonstrated on stage in under a minute. Lead with them.
 
@@ -93,6 +222,13 @@ Claims 1 and 2 can both be demonstrated on stage in under a minute. Lead with th
 
 ## Non-negotiable scope
 
-If the schedule slips, cut in this order: reranking → query transformation → extra connectors → entity resolution → React Native.
+**OCR is phase-1 critical, not a later enhancement.** Most target documents are photos
+and screenshots with no text layer, so without OCR the flagship query returns nothing.
+`mail.pdf` already in the test corpus is exactly this case: four pages, zero extractable
+text. The roadmap has not yet been resequenced for this.
 
-Never cut: Gmail connector, query understanding, citations, per-user isolation, the evaluation harness.
+If the schedule slips, cut in this order: reranking → query transformation → extra
+connectors → entity resolution → native app.
+
+Never cut: **OCR**, Gmail connector, query understanding, ranked file results with viewer
+and download, per-owner isolation, the evaluation harness.
