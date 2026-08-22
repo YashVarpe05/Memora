@@ -3,30 +3,46 @@
 Sequencing and ownership. Architecture detail lives in the per-phase docs, which land
 in the week their phase starts — see the note at the bottom.
 
+Resequenced after the product reframe: the primary use case is document retrieval, and
+most target documents are photos with no text layer. `docs/PRODUCT.md` is the authority
+on what the product is; this file is the authority on the order it gets built in.
+
 ---
 
-## Parallel now — nothing here waits on the gate
+## Done
+
+| | |
+|---|---|
+| Vertical slice | PDF → chunks → pgvector → grounded answer with chunk IDs |
+| Row-level security | Shipped early, in the migration that created the tables |
+| PWA shell | Layout, routing, design tokens, chat UI against mocked responses |
+
+---
+
+## Parallel now
 
 | Track | Owner | Done when |
 |---|---|---|
-| **Gold set** | Adi, solo | 15 real files in `data/corpus/`, `docs/GOLD.jsonl` rewritten against them, eval prints `PASS`. **Blocks phase 1** |
-| Google OAuth setup | backend | Consent screen configured, scopes declared, test users added. **Start today** |
-| ~~OCR benchmark~~ | parked | Harness is built and red. Needs 20 images *and* 20 hand-written transcripts - tedious, not on the critical path, competing with the gate |
+| Corpus exports | Adi | Calendar `.ics`, email `.eml` exports, WhatsApp chat `.txt`, camera photos with EXIF intact. **Not unblocked by OCR — still yours to collect** |
+| Google OAuth setup | backend | Consent screen configured, scopes declared, test users added |
 | UML | docs | Six diagrams. The ingestion and query **sequence** diagrams are the two that carry weight |
-| PWA shell | frontend | Layout, routing, tokens, chat UI against mocked responses, typed from `openapi.json` |
+| PWA shell polish | frontend | Continues against mocks until `/search` exists |
 
-**The gold set is one person's two hours, not a team meeting.** 15 files, 20 queries
-written by working backwards from each file. Nothing else waits on scheduling.
+The corpus is 10 files. The gate needs 20 queries across 8 types, and
+`temporal_resolution` has nothing to anchor to without a calendar export. OCR unblocks
+*writing* the queries; it does not collect the files.
 
-Cross-corpus review - each person writing queries against someone *else's* files - is a
-credibility improvement to the eval set, added whenever the team next meets. It is the
-answer when an examiner asks whether one person wrote both the test and the system. It
-was never a prerequisite for code, and treating it as one is what kept this blocked for
-five sessions.
+---
 
-OAuth setup is an hour of clicking with unpredictable lead time — Google sometimes sits
-on a consent screen for days with no visible reason. It blocks nobody, so it starts now
-rather than being discovered in Week 10.
+## Reclaimed scope — do not refill
+
+Audio ingestion, Whisper, and the arq job queue **left the critical path** when the
+product reframed to document retrieval. No hero query in `PRODUCT.md` needs audio any
+more; the old HR-interview case is now a layer-two example.
+
+This is the only place the reframe gave time back. **It goes to OCR quality and the
+document viewer.** Not to new features, not to a nicer chat, not to another connector.
+Reclaimed time that gets refilled with scope was never reclaimed.
 
 ---
 
@@ -34,56 +50,99 @@ rather than being discovered in Week 10.
 
 | # | Phase | Done when |
 |---|---|---|
-| 1 | Vertical slice | One PDF in, one grounded answer with a citation out. No auth, no queue, no frontend |
-| 2 | Schema + RLS + auth | Every user-owned table has its RLS policy in the same migration, with a cross-user test |
-| 3 | **Query understanding** | Two-stage retrieval from PRODUCT.md. `q001` and `q002` start passing |
-| 4 | Ingestion pipeline | OCR, Whisper, arq workers, progress reporting |
-| 6 | Gmail connector | Live ingest from Gmail. OAuth stays in Testing mode with test users |
-| 5 | Frontend for real | Streaming chat, citation hover, click-to-source with the span highlighted |
+| 1 | **OCR + PII masking** | Images are searchable. Aadhaar and PAN patterns masked before embedding. `uv run python -m memora.eval.inspect` shows **extracted text for every image in `data/corpus/`** |
+| 2 | `/search` — ranked documents | Chunk scores aggregate to a document score; two chunks from one PDF are one result. Thumbnails generated at ingest. **No generation call** |
+| 3 | Gold set + baseline recorded | Harness on the new taxonomy. Naive dense Recall@1 and MRR@10 committed, failures included |
+| 4 | **Query understanding** | Two-stage retrieval from `PRODUCT.md`. Measured against the recorded baseline |
+| 5 | Auth | Dev UUID replaced by a verified token. RLS already enforces the isolation |
+| 6 | Gmail connector | Live ingest. OAuth stays in Testing mode with test users |
+| 7 | Layer two + audio | Streaming chat, citation hover, span highlight, Whisper, arq |
 
-**Phase 6 runs before phase 5, deliberately.** Numbers kept as-is so they still match
-how the phases are referred to elsewhere.
+### Parallel frontend track — starts when phase 2's contract lands
 
-### Why the connector jumps the frontend
+Ranked result list, thumbnails, in-app viewer (page a PDF, zoom an image), download.
 
-Gmail is on the never-cut list but was scheduled behind the two phases most likely to
-overrun. Pulling OAuth setup forward removes the unpredictable wait; resequencing removes
-the schedule risk. They solve different problems, so both apply.
+Buildable against `openapi.json` the moment `/search` exists. **This is not polish.** The
+answer is the file, and a file you cannot open is not an answer. It runs alongside phases
+3–5 rather than waiting behind them.
 
-It also gives a better fallback shape. If phase 5 gets squeezed, the demo is a slightly
-rough frontend over a working connector — which still proves the thesis. The reverse does
-not: a polished UI over upload-only is the NotebookLM problem, dressed better.
+### Why OCR is first
 
-### Protect phase 3
+One dependency chain drives the whole order:
 
-It is the difference between Memora and a document chatbot, and it is the phase most
-likely to get squeezed when the phases around it run long. A pipeline that goes straight
-to vector similarity fails `q001`, `q002` and `q004` while looking excellent on generic
-content questions — the failure that looks like success right up until the defence.
+```
+OCR  →  inspector shows real image text  →  gold set  →  baseline  →  query understanding
+```
 
-**Phase 3 does not start until the naive baseline is recorded and committed.** Run the
-gold set against phase 1/2 retrieval — dense-only, no query understanding — and commit
-the numbers, including `q001` and `q002` failing. Two reasons:
+Recording the baseline used to need only text PDFs. Under Recall@1 over files it needs
+images searchable — six of ten corpus files are images, and the flagship query targets
+one. Writing the gold queries needs to know what is *in* those images, which is the
+inspector's job and it cannot do it today.
+
+The gold set was never blocked on one person's afternoon alone. It was partly blocked on
+OCR, and that went unnoticed for several sessions.
+
+`mail.pdf` is the case already in hand: four pages, zero extractable text.
+
+### Protect phase 4
+
+It is the difference between Memora and a search box, and it is the phase most likely to
+get squeezed when the phases around it run long.
+
+**Phase 4 does not start until the phase 3 baseline is recorded and committed.** Run the
+gold set against naive dense retrieval and commit the numbers, including the failures.
 
 - An ablation table needs a number taken *before* the improvement, not reconstructed
-  after it. Build phase 3 first and there is nothing to compare against.
-- A committed baseline is timestamped. A baseline re-run later, after the pipeline has
-  quietly changed, is not a baseline.
+  after it.
+- A committed baseline is timestamped. A baseline re-run later, against a pipeline that
+  has quietly changed, is not a baseline.
 
 Those failures are a result worth reporting, not an embarrassment to fix before anyone
-sees. They are the evidence that query understanding was necessary.
+sees them. They are the evidence that query understanding was necessary.
+
+### OCR benchmark — rescoped
+
+Un-parked: OCR is the critical path now, so which engine wins actually matters.
+
+**Runs on `data/corpus/` only.** No separate 20-image set, no hand-written transcripts —
+the corpus images are the images that will actually be searched.
+
+Without reference transcripts there is no CER, so the comparison changes shape:
+**engines are judged by downstream Recall@1 on the gold set.** Which engine makes the
+Aadhaar card findable is the question that matters, and it is measured with the metric
+the project already reports. CER on a handful of hand-checked images stays available as
+a spot-check, not as the headline.
 
 ### Cut order, from PRODUCT.md
 
-reranking -> query transformation -> extra connectors -> entity resolution -> React Native
+reranking → query transformation → extra connectors → entity resolution → native app
 
-**Never cut:** Gmail connector, query understanding, citations, per-user isolation, the
-evaluation harness.
+**Never cut:** OCR, Gmail connector, query understanding, ranked file results with viewer
+and download, per-owner isolation, the evaluation harness.
+
+---
+
+## Renumbering
+
+Phase numbers changed. Older comments in the codebase still use the previous ones:
+
+| old | was | now |
+|---|---|---|
+| 1 | Vertical slice | Done |
+| 2 | Schema + RLS + auth | RLS done; auth is **5** |
+| 3 | Query understanding | **4** |
+| 4 | Ingestion — OCR, Whisper, arq | OCR is **1**; Whisper and arq are **7** |
+| 5 | Frontend for real | Viewer and download are the **parallel track**; chat polish is **7** |
+| 6 | Gmail connector | **6** |
+
+Around twenty comments across the API and web source still carry old numbers — most say
+"phase 4" for OCR or "phase 3" for query understanding. They are corrected as each phase
+is worked on, not in a sweep.
 
 ---
 
 ## Documents land per phase
 
-`SCHEMA.md` (phase 2), `RAG.md` (phase 3), `PORTABILITY.md` (phase 5). Deliberate: loading
-the full architecture before the code exists means it gets half-remembered and unfollowed.
-Absence of a doc here is not an oversight.
+`SCHEMA.md` (phase 5), `RAG.md` (phase 4), `PORTABILITY.md` (parallel frontend track).
+Deliberate: loading the full architecture before the code exists means it gets
+half-remembered and unfollowed. Absence of a doc here is not an oversight.
