@@ -11,9 +11,10 @@ from memora.api.deps import CurrentUserDep, DbDep
 from memora.db.models.chunk import Chunk
 from memora.repositories.chunk import ChunkRepository
 from memora.repositories.memory import MemoryRepository
-from memora.services.chunking import TiktokenCounter, TokenCounter, chunk_blocks, embeddable
+from memora.services.chunking import TiktokenCounter, TokenCounter, chunk_blocks
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.extraction import extract_blocks, is_pdf
+from memora.services.masking import mask_all
 
 router = APIRouter(tags=["uploads"])
 
@@ -65,7 +66,22 @@ async def upload_pdf(
             "No extractable text. A scanned PDF needs OCR, which arrives in phase 4.",
         )
 
-    vectors = await embedder.embed([embeddable(c) for c in text_chunks])
+    # Masked before embedding, and the masked form is what gets stored - so the
+    # number is absent from the index as well as from the request.
+    # Mask once, then use the masked form for everything downstream. Masking only the
+    # embed payload would keep the number out of the request and leave it sitting in
+    # the database, which is not what "never leaves the machine" means.
+    masked_text = mask_all([c.text for c in text_chunks])
+    masked_prefix = mask_all([c.contextual_prefix for c in text_chunks])
+
+    vectors = await embedder.embed(
+        mask_all(
+            [
+                f"{prefix.value}\n\n{body.value}" if prefix.value else body.value
+                for prefix, body in zip(masked_prefix, masked_text, strict=True)
+            ]
+        )
+    )
 
     memories = MemoryRepository(session, user_id)
     chunks = ChunkRepository(session, user_id)
@@ -81,12 +97,14 @@ async def upload_pdf(
         [
             Chunk(
                 ordinal=c.ordinal,
-                text=c.text,
-                contextual_prefix=c.contextual_prefix,
+                text=body.value,
+                contextual_prefix=prefix.value,
                 token_count=c.token_count,
                 embedding=vector,
             )
-            for c, vector in zip(text_chunks, vectors, strict=True)
+            for c, body, prefix, vector in zip(
+                text_chunks, masked_text, masked_prefix, vectors, strict=True
+            )
         ],
     )
 

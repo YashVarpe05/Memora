@@ -6,6 +6,7 @@ import hashlib
 import math
 
 from memora.repositories.chunk import ScoredChunk
+from memora.services.masking import MaskedText
 
 DIMS = 768
 
@@ -20,9 +21,14 @@ class FakeEmbedder:
     def __init__(self) -> None:
         self.calls: list[list[str]] = []
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        self.calls.append(texts)
-        return [self._vector(t) for t in texts]
+    async def embed(self, texts: list[MaskedText]) -> list[list[float]]:
+        # Same guard as the real embedder. A double that accepted str would let an
+        # unmasked path pass its tests and fail in production.
+        for text in texts:
+            if not isinstance(text, MaskedText):
+                raise TypeError(f"embed() requires MaskedText, got {type(text).__name__}")
+        self.calls.append([t.value for t in texts])
+        return [self._vector(t.value) for t in texts]
 
     @staticmethod
     def _vector(text: str) -> list[float]:

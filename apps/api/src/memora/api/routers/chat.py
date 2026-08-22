@@ -11,6 +11,7 @@ from memora.api.deps import CurrentUserDep, DbDep, SettingsDep
 from memora.repositories.chunk import ChunkRepository
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.generation import Generator, build_generator
+from memora.services.masking import mask_identifiers
 from memora.services.retrieval import has_weak_evidence
 
 router = APIRouter(tags=["chat"])
@@ -56,7 +57,9 @@ async def chat(
     embedder: EmbedderDep,
     generator: GeneratorDep,
 ) -> ChatResponse:
-    query_vector = (await embedder.embed([payload.question]))[0]
+    # The question is masked too. Someone pasting their own Aadhaar number into the
+    # search box must not have it embedded by a hosted API either.
+    query_vector = (await embedder.embed([mask_identifiers(payload.question)]))[0]
 
     chunks = ChunkRepository(session, user_id)
     results = await chunks.search_dense(query_vector, settings.retrieval_top_k)
