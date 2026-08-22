@@ -16,9 +16,9 @@ def is_pdf(data: bytes) -> bool:
 
 def extract_blocks(data: bytes) -> tuple[str, list[Block]]:
     """Return (document title, structural blocks) from PDF bytes."""
-    import fitz
+    import pymupdf
 
-    with fitz.open(stream=data, filetype="pdf") as doc:
+    with pymupdf.open(stream=data, filetype="pdf") as doc:
         title = (doc.metadata or {}).get("title") or ""
         sizes: list[float] = []
         pages: list[list[tuple[str, float]]] = []

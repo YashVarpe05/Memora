@@ -67,9 +67,9 @@ class FakeGenerator:
 
 def make_pdf(pages: list[str], title: str = "Test Document") -> bytes:
     """A real PDF, built in memory, so extraction is exercised for real."""
-    import fitz
+    import pymupdf
 
-    doc = fitz.open()
+    doc = pymupdf.open()
     doc.set_metadata({"title": title})
     for body in pages:
         page = doc.new_page()
