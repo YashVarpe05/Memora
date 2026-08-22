@@ -34,6 +34,29 @@ services:
       timeout: 3s
       retries: 10
 
+  ocr:
+    build:
+      context: ./infra/ocr
+      args:
+        # Tesseract alone satisfies phase 1. Rebuild with WITH_PADDLE=1 for the
+        # engine benchmark:  docker compose build --build-arg WITH_PADDLE=1 ocr
+        WITH_PADDLE: "0"
+    container_name: memora-ocr
+    environment:
+      OCR_ENGINE: tesseract
+    # Bound to loopback only. The API runs on the host during development, so it needs
+    # a port - but the service holds document bytes and must not be on the LAN.
+    ports:
+      - "127.0.0.1:8081:8080"
+    healthcheck:
+      # Completes a real inference. An engine that imports and then dies at inference
+      # is the failure already seen with paddle, and an import check would miss it.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,json,sys; r=json.load(urllib.request.urlopen('http://localhost:8080/health')); sys.exit(0 if r['status']=='ok' else 1)\""]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
 volumes:
   memora-pgdata:
   memora-redisdata:

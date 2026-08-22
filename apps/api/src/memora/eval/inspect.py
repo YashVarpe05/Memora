@@ -94,7 +94,61 @@ def read_pdf(path: Path) -> tuple[str, str]:
                 break
     detail = f"{pages}pp" + (f' title="{title[:40]}"' if title else "")
     body = _clean(text)
-    return detail, body or "(no extractable text - scanned? needs OCR)"
+    if body:
+        return detail, body
+    # No text layer - the pages are images, so read them the same way.
+    return detail + " (no text layer)", _ocr_pdf_preview(path)
+
+
+def _ocr_preview(path: Path) -> str:
+    """Real extracted text for an image.
+
+    The gold set cannot be written from "(text unknown)" - deciding whether an image
+    supports an OCR-dependent query means reading what is actually in it. Degrades to a
+    message rather than failing the run when the OCR service is down, so the inspector
+    stays usable with compose stopped.
+    """
+    import asyncio
+
+    from memora.services.ocr import OcrUnavailable, build_ocr_client
+
+    data = path.read_bytes()
+
+    async def run() -> str:
+        return await build_ocr_client().read(data, path.name)
+
+    try:
+        text = asyncio.run(run())
+    except OcrUnavailable:
+        return "(OCR service unavailable - run: docker compose up -d ocr)"
+    except Exception as exc:  # noqa: BLE001
+        return f"(OCR failed: {type(exc).__name__})"
+    return _clean(text) or "(no text found in this image)"
+
+
+def _ocr_pdf_preview(path: Path) -> str:
+    """Render page one and OCR it, for a PDF whose pages are images."""
+    import asyncio
+
+    import pymupdf
+
+    from memora.services.ocr import OcrUnavailable, build_ocr_client
+
+    with pymupdf.open(path) as doc:
+        if not len(doc):
+            return "(empty pdf)"
+        png = doc[0].get_pixmap(dpi=200).tobytes("png")
+
+    async def run() -> str:
+        return await build_ocr_client().read(png, path.name)
+
+    try:
+        text = asyncio.run(run())
+    except OcrUnavailable:
+        return "(no text layer; OCR service unavailable - docker compose up -d ocr)"
+    except Exception as exc:  # noqa: BLE001
+        return f"(no text layer; OCR failed: {type(exc).__name__})"
+    return _clean(text) or "(no text layer, and OCR found nothing)"
 
 
 def read_image(path: Path) -> tuple[str, str]:
@@ -110,7 +164,7 @@ def read_image(path: Path) -> tuple[str, str]:
             # 36867 DateTimeOriginal, 306 DateTime
             taken = str(exif.get(36867) or exif.get(306) or "")
     detail = f"{width}x{height} {fmt}" + (f" taken={taken}" if taken else " taken=unknown")
-    return detail, "(image - text content unknown until OCR runs in phase 4)"
+    return detail, _ocr_preview(path)
 
 
 def read_audio(path: Path) -> tuple[str, str]:

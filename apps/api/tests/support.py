@@ -83,3 +83,36 @@ def make_pdf(pages: list[str], title: str = "Test Document") -> bytes:
     data = doc.tobytes()
     doc.close()
     return data
+
+
+class FakeOcr:
+    """Canned OCR. Keeps the suite off the network and off the container."""
+
+    def __init__(self, text: str = "extracted line one\nextracted line two") -> None:
+        self.text = text
+        self.calls: list[str] = []
+
+    async def read(self, data: bytes, filename: str = "upload") -> str:
+        self.calls.append(filename)
+        return self.text
+
+
+class BrokenOcr:
+    def __init__(self, message: str = "connection refused") -> None:
+        self.message = message
+
+    async def read(self, data: bytes, filename: str = "upload") -> str:
+        from memora.services.ocr import OcrUnavailable
+
+        raise OcrUnavailable(self.message)
+
+
+def make_png(width: int = 40, height: int = 20) -> bytes:
+    """A real PNG. Magic-byte sniffing must be exercised against actual bytes."""
+    import io
+
+    from PIL import Image
+
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), "white").save(buffer, format="PNG")
+    return buffer.getvalue()

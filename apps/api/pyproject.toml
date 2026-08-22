@@ -20,6 +20,7 @@ dependencies = [
     "google-genai>=1.0",
     "pillow>=12.3.0",
     "mutagen>=1.48.1",
+    "httpx>=0.28.1",
 ]
 
 [dependency-groups]

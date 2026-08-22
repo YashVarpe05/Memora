@@ -178,3 +178,15 @@ def test_embedder_refuses_a_plain_string():
 def test_embedder_accepts_masked_text():
     payload = require_masked([mask_identifiers("hello")])
     assert payload == ["hello"]
+
+
+def test_gmail_thread_id_is_untouched():
+    """Regression: a real mail.pdf carried a Gmail thread id whose middle twelve digits
+    happen to pass Verhoeff. Masking it would break the URL and make the email harder to
+    find - which is the failure mode this whole design is arranged around.
+    """
+    url = "?ik=1&view=pt&search=all&permthid=thread-a:r8812345678900512345&simpl=msg-a:r99"
+    masked = mask_identifiers(url)
+
+    assert masked.value == url
+    assert not masked.was_masked

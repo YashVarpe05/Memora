@@ -34,6 +34,10 @@ class Settings(BaseSettings):
 
     retrieval_top_k: int = 5
 
+    # OCR runs in a container (infra/ocr), bound to loopback.
+    ocr_url: str = "http://localhost:8081"
+    ocr_engine: str = "tesseract"
+
     # Phase 1 has no auth. One server-side dev identity, injected exactly the way a
     # real one will be - never read from a request.
     dev_user_id: UUID = UUID("00000000-0000-4000-8000-000000000001")

@@ -1,4 +1,4 @@
-"""PDF ingestion."""
+"""Document ingestion. PDFs and images."""
 
 from __future__ import annotations
 
@@ -13,8 +13,15 @@ from memora.repositories.chunk import ChunkRepository
 from memora.repositories.memory import MemoryRepository
 from memora.services.chunking import TiktokenCounter, TokenCounter, chunk_blocks
 from memora.services.embedding import Embedder, build_embedder
-from memora.services.extraction import extract_blocks, is_pdf
+from memora.services.extraction import (
+    extract_blocks,
+    extract_image_blocks,
+    extract_pdf_via_ocr,
+    image_mime,
+    is_pdf,
+)
 from memora.services.masking import mask_all
+from memora.services.ocr import OcrClient, OcrUnavailable, build_ocr_client
 
 router = APIRouter(tags=["uploads"])
 
@@ -24,7 +31,9 @@ MAX_BYTES = 25 * 1024 * 1024
 class UploadResponse(BaseModel):
     memory_id: str
     title: str
+    source_type: str
     chunks: int
+    identifiers_masked: int
 
 
 def get_embedder() -> Embedder:
@@ -35,39 +44,67 @@ def get_counter() -> TokenCounter:
     return TiktokenCounter()
 
 
+def get_ocr() -> OcrClient:
+    return build_ocr_client()
+
+
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 CounterDep = Annotated[TokenCounter, Depends(get_counter)]
-PdfUpload = Annotated[UploadFile, File(...)]
+OcrDep = Annotated[OcrClient, Depends(get_ocr)]
+DocumentUpload = Annotated[UploadFile, File(...)]
 
 
 @router.post("/uploads", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
-async def upload_pdf(
+async def upload_document(
     session: DbDep,
     user_id: CurrentUserDep,
-    file: PdfUpload,
+    file: DocumentUpload,
     embedder: EmbedderDep,
     counter: CounterDep,
+    ocr: OcrDep,
 ) -> UploadResponse:
     data = await file.read()
+    filename = file.filename or "upload"
 
     if len(data) > MAX_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File exceeds 25 MB")
-    if not is_pdf(data):
+
+    if is_pdf(data):
+        source_type = "pdf"
+        title, blocks = extract_blocks(data)
+        if not blocks:
+            # A printed email or a scan: pages are images, so read them as images.
+            try:
+                title, blocks = await extract_pdf_via_ocr(data, ocr, filename)
+            except OcrUnavailable as exc:
+                raise HTTPException(
+                    status.HTTP_503_SERVICE_UNAVAILABLE,
+                    f"This PDF has no text layer and OCR is unavailable: {exc}",
+                ) from exc
+    elif image_mime(data):
+        source_type = "image"
+        try:
+            title, blocks = await extract_image_blocks(data, ocr, filename)
+        except OcrUnavailable as exc:
+            raise HTTPException(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                f"OCR is required for images and is not available: {exc}",
+            ) from exc
+    else:
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "Only PDF is supported in this phase.",
+            "Only PDF and image uploads are supported.",
         )
 
-    title, blocks = extract_blocks(data)
     text_chunks = chunk_blocks(blocks, title=title, counter=counter)
     if not text_chunks:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_CONTENT,
-            "No extractable text. A scanned PDF needs OCR, which arrives in phase 4.",
+        detail = (
+            "No text found in this image."
+            if source_type == "image"
+            else "No extractable text. A scanned PDF is read through OCR as an image."
         )
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail)
 
-    # Masked before embedding, and the masked form is what gets stored - so the
-    # number is absent from the index as well as from the request.
     # Mask once, then use the masked form for everything downstream. Masking only the
     # embed payload would keep the number out of the request and leave it sitting in
     # the database, which is not what "never leaves the machine" means.
@@ -87,10 +124,10 @@ async def upload_pdf(
     chunks = ChunkRepository(session, user_id)
 
     memory = await memories.create(
-        source_type="pdf",
+        source_type=source_type,
         title=title,
         # Stored as data. Never joined onto a path.
-        filename=file.filename or "upload.pdf",
+        filename=filename,
     )
     await chunks.add_many(
         memory.id,
@@ -108,4 +145,13 @@ async def upload_pdf(
         ],
     )
 
-    return UploadResponse(memory_id=str(memory.id), title=title, chunks=len(text_chunks))
+    # Counted by type only, never by value.
+    masked_count = sum(len(m.detections) for m in [*masked_text, *masked_prefix])
+
+    return UploadResponse(
+        memory_id=str(memory.id),
+        title=title,
+        source_type=source_type,
+        chunks=len(text_chunks),
+        identifiers_masked=masked_count,
+    )

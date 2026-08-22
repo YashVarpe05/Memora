@@ -83,12 +83,13 @@ async def db(test_user_id):
 
 @pytest.fixture
 def doubles():
-    from support import FakeCounter, FakeEmbedder, FakeGenerator
+    from support import FakeCounter, FakeEmbedder, FakeGenerator, FakeOcr
 
     return {
         "embedder": FakeEmbedder(),
         "counter": FakeCounter(),
         "generator": FakeGenerator(),
+        "ocr": FakeOcr(),
     }
 
 
@@ -99,6 +100,7 @@ async def api(app, db, doubles, test_user_id):
 
     app.dependency_overrides[uploads_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[uploads_router.get_counter] = lambda: doubles["counter"]
+    app.dependency_overrides[uploads_router.get_ocr] = lambda: doubles["ocr"]
     app.dependency_overrides[chat_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[chat_router.get_generator] = lambda: doubles["generator"]
 

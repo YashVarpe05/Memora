@@ -70,8 +70,8 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Upload Pdf */
-        post: operations["upload_pdf_uploads_post"];
+        /** Upload Document */
+        post: operations["upload_document_uploads_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,8 +82,8 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** Body_upload_pdf_uploads_post */
-        Body_upload_pdf_uploads_post: {
+        /** Body_upload_document_uploads_post */
+        Body_upload_document_uploads_post: {
             /** File */
             file: string;
         };
@@ -147,8 +147,12 @@ export interface components {
         UploadResponse: {
             /** Chunks */
             chunks: number;
+            /** Identifiers Masked */
+            identifiers_masked: number;
             /** Memory Id */
             memory_id: string;
+            /** Source Type */
+            source_type: string;
             /** Title */
             title: string;
         };
@@ -247,7 +251,7 @@ export interface operations {
             };
         };
     };
-    upload_pdf_uploads_post: {
+    upload_document_uploads_post: {
         parameters: {
             query?: never;
             header?: never;
@@ -256,7 +260,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_pdf_uploads_post"];
+                "multipart/form-data": components["schemas"]["Body_upload_document_uploads_post"];
             };
         };
         responses: {

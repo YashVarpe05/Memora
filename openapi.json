@@ -1,7 +1,7 @@
 {
   "components": {
     "schemas": {
-      "Body_upload_pdf_uploads_post": {
+      "Body_upload_document_uploads_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -12,7 +12,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_pdf_uploads_post",
+        "title": "Body_upload_document_uploads_post",
         "type": "object"
       },
       "ChatRequest": {
@@ -175,8 +175,16 @@
             "title": "Chunks",
             "type": "integer"
           },
+          "identifiers_masked": {
+            "title": "Identifiers Masked",
+            "type": "integer"
+          },
           "memory_id": {
             "title": "Memory Id",
+            "type": "string"
+          },
+          "source_type": {
+            "title": "Source Type",
             "type": "string"
           },
           "title": {
@@ -187,7 +195,9 @@
         "required": [
           "memory_id",
           "title",
-          "chunks"
+          "source_type",
+          "chunks",
+          "identifiers_masked"
         ],
         "title": "UploadResponse",
         "type": "object"
@@ -328,12 +338,12 @@
     },
     "/uploads": {
       "post": {
-        "operationId": "upload_pdf_uploads_post",
+        "operationId": "upload_document_uploads_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_upload_pdf_uploads_post"
+                "$ref": "#/components/schemas/Body_upload_document_uploads_post"
               }
             }
           },
@@ -361,7 +371,7 @@
             "description": "Validation Error"
           }
         },
-        "summary": "Upload Pdf",
+        "summary": "Upload Document",
         "tags": [
           "uploads"
         ]
