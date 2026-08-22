@@ -21,6 +21,14 @@ dist-ssr/
 # Test corpus — real personal data, never commit
 data/corpus/*
 !data/corpus/.gitkeep
+# Unanchored too: a corpus dropped at any depth must never be committable.
+**/data/corpus/*
+!**/data/corpus/.gitkeep
+
+# The gold-set draft carries extracted previews of those same personal files.
+# The finished GOLD.jsonl is committed; the draft never is.
+docs/GOLD.jsonl.draft
+*.draft
 
 # Sample documents used for manual verification. Third-party PDFs, not ours to commit.
 data/samples/*

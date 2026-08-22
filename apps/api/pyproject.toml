@@ -18,6 +18,8 @@ dependencies = [
     "pymupdf>=1.25",
     "tiktoken>=0.8",
     "google-genai>=1.0",
+    "pillow>=12.3.0",
+    "mutagen>=1.48.1",
 ]
 
 [dependency-groups]
