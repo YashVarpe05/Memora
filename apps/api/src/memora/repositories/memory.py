@@ -24,6 +24,8 @@ class MemoryRepository(BaseRepository[Memory]):
         byte_size: int = 0,
         mime_type: str = "",
         has_thumbnail: bool = False,
+        sender: str | None = None,
+        occurred_at: object | None = None,
     ) -> Memory:
         memory = Memory(
             source_type=source_type,
@@ -33,6 +35,8 @@ class MemoryRepository(BaseRepository[Memory]):
             byte_size=byte_size,
             mime_type=mime_type,
             has_thumbnail=has_thumbnail,
+            sender=sender,
+            occurred_at=occurred_at,
         )
         self.add(memory)
         await self.session.flush()

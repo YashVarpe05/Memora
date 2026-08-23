@@ -11,22 +11,35 @@ from memora.api.deps import CurrentUserDep, DbDep
 from memora.db.models.chunk import Chunk
 from memora.repositories.chunk import ChunkRepository
 from memora.repositories.memory import MemoryRepository
-from memora.services.chunking import TiktokenCounter, TokenCounter, chunk_blocks
+from memora.services.chunking import (
+    TiktokenCounter,
+    TokenCounter,
+    chunk_blocks,
+    chunk_per_block,
+)
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.extraction import (
+    Extracted,
     extract_blocks,
+    extract_calendar,
+    extract_chat,
+    extract_email,
     extract_image_blocks,
     extract_pdf_via_ocr,
     image_mime,
     is_pdf,
+    text_kind,
 )
 from memora.services.masking import mask_all
 from memora.services.ocr import OcrClient, OcrUnavailable, build_ocr_client
+from memora.services.parsers.chat import UnparseableChatExport
 from memora.services.storage import BlobStore, build_blob_store, make_thumbnail
 
 router = APIRouter(tags=["uploads"])
 
 MAX_BYTES = 25 * 1024 * 1024
+
+TEXT_MIME = {"calendar": "text/calendar", "email": "message/rfc822", "chat": "text/plain"}
 
 
 class UploadResponse(BaseModel):
@@ -95,8 +108,9 @@ async def upload_document(
             deduplicated=True,
         )
 
+    kind = text_kind(data)
+
     if is_pdf(data):
-        source_type = "pdf"
         title, blocks = extract_blocks(data)
         if not blocks:
             # A printed email or a scan: pages are images, so read them as images.
@@ -107,8 +121,8 @@ async def upload_document(
                     status.HTTP_503_SERVICE_UNAVAILABLE,
                     f"This PDF has no text layer and OCR is unavailable: {exc}",
                 ) from exc
+        extracted = Extracted(title=title, blocks=blocks, source_type="pdf")
     elif image_mime(data):
-        source_type = "image"
         try:
             title, blocks = await extract_image_blocks(data, ocr, filename)
         except OcrUnavailable as exc:
@@ -116,18 +130,33 @@ async def upload_document(
                 status.HTTP_503_SERVICE_UNAVAILABLE,
                 f"OCR is required for images and is not available: {exc}",
             ) from exc
+        extracted = Extracted(title=title, blocks=blocks, source_type="image")
+    elif kind == "calendar":
+        extracted = extract_calendar(data, filename)
+    elif kind == "email":
+        extracted = extract_email(data, filename)
+    elif kind == "chat":
+        try:
+            extracted = extract_chat(data, filename)
+        except UnparseableChatExport as exc:
+            # Loudly, on purpose. A silently unparsed export becomes one enormous chunk
+            # that matches nothing, and nobody notices until a search fails.
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     else:
         raise HTTPException(
             status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "Only PDF and image uploads are supported.",
+            "Supported: PDF, images, .ics calendars, .eml email, WhatsApp .txt exports.",
         )
 
-    text_chunks = chunk_blocks(blocks, title=title, counter=counter)
+    title, blocks, source_type = extracted.title, extracted.blocks, extracted.source_type
+
+    chunker = chunk_per_block if extracted.per_block else chunk_blocks
+    text_chunks = chunker(blocks, title=title, counter=counter)
     if not text_chunks:
         detail = (
             "No text found in this image."
             if source_type == "image"
-            else "No extractable text. A scanned PDF is read through OCR as an image."
+            else f"No extractable content in this {source_type} file."
         )
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail)
 
@@ -148,7 +177,11 @@ async def upload_document(
 
     chunks = ChunkRepository(session, user_id)
 
-    mime = "application/pdf" if source_type == "pdf" else (image_mime(data) or "")
+    mime = (
+        "application/pdf"
+        if source_type == "pdf"
+        else (image_mime(data) or TEXT_MIME.get(source_type, "text/plain"))
+    )
     thumbnail = make_thumbnail(data, mime)
     if thumbnail:
         blobs.put_thumbnail(user_id, stored.content_hash, thumbnail)
@@ -162,6 +195,8 @@ async def upload_document(
         byte_size=stored.byte_size,
         mime_type=mime,
         has_thumbnail=thumbnail is not None,
+        sender=extracted.sender,
+        occurred_at=extracted.occurred_at,
     )
     await chunks.add_many(
         memory.id,
@@ -172,6 +207,8 @@ async def upload_document(
                 contextual_prefix=prefix.value,
                 token_count=c.token_count,
                 page=c.page,
+                occurred_at=c.occurred_at,
+                meta=c.meta or {},
                 embedding=vector,
             )
             for c, body, prefix, vector in zip(

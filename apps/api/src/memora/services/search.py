@@ -9,36 +9,49 @@ someone adds a "summarise the results" step.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from uuid import UUID
 
 from memora.repositories.chunk import ChunkHit
 
-# How many chunks to fetch per requested document.
+# --- the fetch window -------------------------------------------------------------
 #
-# The alternative, DISTINCT ON (memory_id), reads every chunk and defeats the HNSW
-# index. Over-fetching keeps the index in play, at the cost of a real bound: a document
-# whose only matching chunk falls outside the window is invisible. The worst case is a
-# single document with many chunks crowding the window - so the number of documents
-# reachable is at least (limit * FANOUT) / chunks_in_the_largest_document.
+# Retrieval is index-first: HNSW returns nearest *chunks*, and documents are grouped
+# from them. The question is how many chunks to fetch, and a fixed number is wrong at
+# every corpus size but one.
 #
-# MEASURED 2026-08-22 on the real corpus - 8 documents, 20 chunks, largest document
-# 5 chunks, mean 2.5.
+# Measured why: the corpus was 20 chunks and a 50-chunk window covered all of it. One
+# calendar export is 355 events, so a single file turns that window into 14% coverage.
+# Raising the constant would buy one order of magnitude and be wrong at the next.
 #
-#   window at limit=10             50 chunks
-#   whole corpus fetched while      total chunks <= 50, i.e. ~20 documents at 2.5 each
-#   guaranteed reachable            50 / 5 = 10 documents, whatever the distribution
-#   documents missable today        0 - the corpus is smaller than the window
+# So the window widens instead. Fetch, group, and if fewer documents surfaced than were
+# asked for, double and retry - until enough documents appear, the corpus is exhausted,
+# or the ceiling is reached. The cost adapts to the actual distribution rather than to a
+# guess about it, and the number of extra queries is logarithmic in the worst case.
 #
-# What this bounds is list completeness, not the top hit. A document with a strong match
-# puts a chunk near the top of the window and is found regardless of corpus size; what
-# degrades is the tail, where a document whose best chunk is mediocre falls out of the
-# window entirely. So Recall@1 is robust here and Recall@5 is what erodes first.
+# MAX_WINDOW is a real bound, not a tuning knob: past it, a document whose best chunk
+# ranks below 2000 is unreachable. That is reported rather than hidden - see
+# `SearchOutcome.exhausted`.
 #
-# At a thousand documents the window covers about 2% of chunks. Raise the fanout, or
-# move to a two-pass retrieve-then-group, before the corpus reaches that size. Carry
-# this paragraph into BASELINE.md when the numbers are recorded.
-SEARCH_FANOUT = 5
+# MEASURED 2026-08-22 on the real corpus, 11 documents / 377 chunks, one calendar
+# accounting for 353 of them. Five queries, and the counterfactual run with the old
+# fixed 50-chunk window:
+#
+#              fixed 50-chunk window        adaptive
+#   documents  2 to 8 surfaced              all reachable, 2-3 widenings
+#   examined   50                           200 to 377
+#   Recall@1   5/5                          5/5
+#
+# Worth being precise about what changed. Recall@1 was never at risk - a document with
+# a strong match puts a chunk near the top of any window, which is what the earlier
+# bound analysis predicted. What the fixed window broke was list completeness: one query
+# surfaced two documents out of eleven, so asking for ten results returned two.
+#
+# So this fixes Recall@5 and leaves Recall@1 where it was. That is the honest claim.
+
+INITIAL_FANOUT = 5
+MAX_WINDOW = 2000
 
 SNIPPET_CHARS = 280
 
@@ -58,26 +71,77 @@ class DocumentResult:
     has_thumbnail: bool
 
 
-def fetch_window(limit: int) -> int:
-    return max(limit, 1) * SEARCH_FANOUT
+@dataclass(frozen=True)
+class SearchOutcome:
+    results: list[DocumentResult]
+    # Observability for the bound above, so it is never a silent truncation.
+    chunks_examined: int
+    documents_in_window: int
+    widenings: int
+    exhausted: bool
 
 
-def rank_documents(hits: list[ChunkHit], limit: int) -> list[DocumentResult]:
-    """Collapse chunk hits into ranked documents.
+def initial_window(limit: int) -> int:
+    return max(limit, 1) * INITIAL_FANOUT
 
-    A document scores as its best chunk. For finding a document that is the right
-    call - one strong match identifies it, while averaging dilutes a short decisive
-    match with the rest of a long file. It is a knob the baseline will test, not a
-    truth.
+
+def group_by_document(hits: list[ChunkHit]) -> list[ChunkHit]:
+    """One hit per document: its best chunk.
+
+    A document scores as its best chunk. For finding a document that is the right call -
+    one strong match identifies it, while averaging dilutes a short decisive match with
+    the rest of a long file. It is a knob the baseline will test, not a truth.
     """
     best: dict[UUID, ChunkHit] = {}
     for hit in hits:
         current = best.get(hit.memory_id)
         if current is None or hit.similarity > current.similarity:
             best[hit.memory_id] = hit
+    return sorted(best.values(), key=lambda h: h.similarity, reverse=True)
 
-    ordered = sorted(best.values(), key=lambda h: h.similarity, reverse=True)[:limit]
 
+async def search_documents(
+    fetch: Callable[[int], Awaitable[list[ChunkHit]]],
+    limit: int,
+) -> SearchOutcome:
+    """Retrieve, group, and widen until enough documents surface.
+
+    `fetch(n)` returns the n nearest chunks. Widening stops on any of three conditions,
+    and each one means something different:
+
+    - enough documents found      the normal case
+    - fetch returned fewer than
+      asked for                   the corpus is exhausted, nothing is being missed
+    - the ceiling was reached     a real bound, reported as `exhausted=False` with
+                                  `widenings` at its maximum
+    """
+    window = initial_window(limit)
+    widenings = 0
+    hits: list[ChunkHit] = []
+    corpus_exhausted = False
+
+    while True:
+        hits = await fetch(window)
+        corpus_exhausted = len(hits) < window
+        grouped = group_by_document(hits)
+
+        if len(grouped) >= limit or corpus_exhausted or window >= MAX_WINDOW:
+            break
+
+        window = min(window * 2, MAX_WINDOW)
+        widenings += 1
+
+    grouped = group_by_document(hits)
+    return SearchOutcome(
+        results=to_results(grouped[:limit]),
+        chunks_examined=len(hits),
+        documents_in_window=len(grouped),
+        widenings=widenings,
+        exhausted=corpus_exhausted,
+    )
+
+
+def to_results(hits: list[ChunkHit]) -> list[DocumentResult]:
     return [
         DocumentResult(
             rank=index,
@@ -94,13 +158,5 @@ def rank_documents(hits: list[ChunkHit], limit: int) -> list[DocumentResult]:
             byte_size=hit.byte_size,
             has_thumbnail=hit.has_thumbnail,
         )
-        for index, hit in enumerate(ordered, start=1)
+        for index, hit in enumerate(hits, start=1)
     ]
-
-
-def distinct_documents_in_window(hits: list[ChunkHit]) -> int:
-    """How many documents the fetch window actually reached.
-
-    Reported so the over-fetch bound is an observed number rather than a caveat.
-    """
-    return len({hit.memory_id for hit in hits})

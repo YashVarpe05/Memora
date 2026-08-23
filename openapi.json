@@ -193,6 +193,14 @@
       },
       "SearchResponse": {
         "properties": {
+          "chunks_examined": {
+            "title": "Chunks Examined",
+            "type": "integer"
+          },
+          "corpus_exhausted": {
+            "title": "Corpus Exhausted",
+            "type": "boolean"
+          },
           "documents_in_window": {
             "title": "Documents In Window",
             "type": "integer"
@@ -222,13 +230,20 @@
           "total": {
             "title": "Total",
             "type": "integer"
+          },
+          "widenings": {
+            "title": "Widenings",
+            "type": "integer"
           }
         },
         "required": [
           "refused",
           "total",
           "results",
-          "documents_in_window"
+          "chunks_examined",
+          "documents_in_window",
+          "widenings",
+          "corpus_exhausted"
         ],
         "title": "SearchResponse",
         "type": "object"

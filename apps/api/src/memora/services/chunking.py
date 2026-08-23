@@ -54,6 +54,9 @@ class Block:
     heading: str | None = None
     # 1-based source page for PDFs, None for images and plain text.
     page: int | None = None
+    # When the content is about. Set by the calendar and chat parsers.
+    occurred_at: object | None = None
+    meta: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,8 @@ class TextChunk:
     ordinal: int
     # The page the chunk starts on, so click-through opens on the match.
     page: int | None = None
+    occurred_at: object | None = None
+    meta: dict | None = None
 
 
 def _overlap_tail(text: str, counter: TokenCounter, tokens: int) -> str:
@@ -134,6 +139,33 @@ def chunk_blocks(
             token_count=counter.count(merged),
             ordinal=chunks[-1].ordinal,
             page=chunks[-1].page,
+        )
+    return chunks
+
+
+def chunk_per_block(blocks: list[Block], *, title: str, counter: TokenCounter) -> list[TextChunk]:
+    """One chunk per block, for formats whose structure is the unit of meaning.
+
+    A calendar event and a conversation window are already the right size and the right
+    shape. Running a token window over them would cut across unrelated events and embed
+    half of one meeting with half of another.
+    """
+    chunks: list[TextChunk] = []
+    for block in blocks:
+        body = block.text.strip()
+        if not body:
+            continue
+        prefix = title if block.heading is None else f"{title} - {block.heading}"
+        chunks.append(
+            TextChunk(
+                text=body,
+                contextual_prefix=prefix[:512],
+                token_count=counter.count(body),
+                ordinal=len(chunks),
+                page=block.page,
+                occurred_at=block.occurred_at,
+                meta=block.meta,
+            )
         )
     return chunks
 

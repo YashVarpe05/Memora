@@ -229,6 +229,10 @@ export interface components {
         };
         /** SearchResponse */
         SearchResponse: {
+            /** Chunks Examined */
+            chunks_examined: number;
+            /** Corpus Exhausted */
+            corpus_exhausted: boolean;
             /** Documents In Window */
             documents_in_window: number;
             /** Reason */
@@ -239,6 +243,8 @@ export interface components {
             results: components["schemas"]["SearchResult"][];
             /** Total */
             total: number;
+            /** Widenings */
+            widenings: number;
         };
         /** SearchResult */
         SearchResult: {

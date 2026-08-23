@@ -22,8 +22,9 @@ class FakeEmbedder:
         self.calls: list[list[str]] = []
 
     async def embed(self, texts: list[MaskedText]) -> list[list[float]]:
-        # Same guard as the real embedder. A double that accepted str would let an
-        # unmasked path pass its tests and fail in production.
+        # No batch limit here on purpose: embed() accepts any length by contract, and
+        # each implementation handles its provider's limit. GeminiEmbedder's splitting
+        # is tested directly in test_embedding_batching.py.
         for text in texts:
             if not isinstance(text, MaskedText):
                 raise TypeError(f"embed() requires MaskedText, got {type(text).__name__}")

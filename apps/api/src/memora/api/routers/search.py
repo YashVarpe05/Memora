@@ -19,11 +19,7 @@ from memora.repositories.chunk import ChunkRepository
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.masking import mask_identifiers
 from memora.services.retrieval import has_weak_evidence
-from memora.services.search import (
-    distinct_documents_in_window,
-    fetch_window,
-    rank_documents,
-)
+from memora.services.search import search_documents
 
 router = APIRouter(tags=["search"])
 
@@ -55,9 +51,13 @@ class SearchResponse(BaseModel):
     reason: str | None = None
     total: int
     results: list[SearchResult]
-    # How many distinct documents the fetch window reached. Surfaced so the over-fetch
-    # bound is observable rather than theoretical.
+    # Retrieval bound, surfaced rather than hidden. The window widens until enough
+    # documents surface; these say how much work that took and whether the corpus was
+    # fully covered.
+    chunks_examined: int
     documents_in_window: int
+    widenings: int
+    corpus_exhausted: bool
 
 
 def get_embedder() -> Embedder:
@@ -79,23 +79,30 @@ async def search(
     query_vector = (await embedder.embed([mask_identifiers(payload.query)]))[0]
 
     chunks = ChunkRepository(session, user_id)
-    hits = await chunks.search_hits(query_vector, fetch_window(payload.limit))
+    outcome = await search_documents(
+        lambda n: chunks.search_hits(query_vector, n), payload.limit
+    )
+    ranked = outcome.results
 
-    if has_weak_evidence([h.similarity for h in hits]):
+    if has_weak_evidence([r.score for r in ranked]):
         return SearchResponse(
             refused=True,
-            reason="no_evidence" if not hits else "weak_evidence",
+            reason="no_evidence" if not ranked else "weak_evidence",
             total=0,
             results=[],
-            documents_in_window=0,
+            chunks_examined=outcome.chunks_examined,
+            documents_in_window=outcome.documents_in_window,
+            widenings=outcome.widenings,
+            corpus_exhausted=outcome.exhausted,
         )
-
-    ranked = rank_documents(hits, payload.limit)
 
     return SearchResponse(
         refused=False,
         total=len(ranked),
-        documents_in_window=distinct_documents_in_window(hits),
+        chunks_examined=outcome.chunks_examined,
+        documents_in_window=outcome.documents_in_window,
+        widenings=outcome.widenings,
+        corpus_exhausted=outcome.exhausted,
         results=[
             SearchResult(
                 rank=r.rank,

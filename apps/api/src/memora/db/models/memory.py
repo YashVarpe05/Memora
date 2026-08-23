@@ -33,6 +33,12 @@ class Memory(Base):
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     has_thumbnail: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Named in the stage 1 filter contract, so it will be filtered on.
+    sender: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    occurred_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

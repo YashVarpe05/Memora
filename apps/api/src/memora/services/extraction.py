@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from memora.services.chunking import Block
+from memora.services.parsers.calendar import is_calendar, parse_calendar
+from memora.services.parsers.chat import group_conversations, looks_like_chat, parse_chat
+from memora.services.parsers.email import is_email, parse_email
 
 if TYPE_CHECKING:
     from memora.services.ocr import OcrClient
@@ -136,3 +141,94 @@ async def extract_pdf_via_ocr(
         )
 
     return str(title).strip()[:512] or "Untitled", blocks
+
+
+@dataclass(frozen=True)
+class Extracted:
+    """What a format parser hands back to the upload route."""
+
+    title: str
+    blocks: list[Block]
+    source_type: str
+    # One chunk per block for calendar and chat, where the structure is the unit of
+    # meaning; the token window for prose.
+    per_block: bool = False
+    sender: str | None = None
+    occurred_at: datetime | None = None
+
+
+def text_kind(data: bytes) -> str | None:
+    """Recognise a text format from its content. Returns calendar | email | chat | None."""
+    if is_calendar(data):
+        return "calendar"
+    if is_email(data):
+        return "email"
+    try:
+        sample = data[:4096].decode("utf-8", errors="strict")
+    except UnicodeDecodeError:
+        return None
+    return "chat" if looks_like_chat(sample) else None
+
+
+def extract_calendar(data: bytes, filename: str) -> Extracted:
+    name, events = parse_calendar(data)
+    blocks = [
+        Block(
+            text=event.render(),
+            heading=event.summary[:120],
+            occurred_at=event.starts_at,
+            meta=event.meta,
+        )
+        for event in events
+    ]
+    starts = [e.starts_at for e in events if e.starts_at]
+    return Extracted(
+        title=name or Path(filename).stem,
+        blocks=blocks,
+        source_type="calendar",
+        per_block=True,
+        occurred_at=min(starts) if starts else None,
+    )
+
+
+def extract_email(data: bytes, filename: str) -> Extracted:
+    parsed = parse_email(data)
+    body = parsed.body or parsed.subject
+    return Extracted(
+        title=parsed.subject,
+        blocks=[
+            Block(text=paragraph.strip(), heading=parsed.subject[:120],
+                  occurred_at=parsed.sent_at)
+            for paragraph in body.split("\n\n")
+            if paragraph.strip()
+        ],
+        source_type="email",
+        sender=parsed.sender or None,
+        occurred_at=parsed.sent_at,
+    )
+
+
+def extract_chat(data: bytes, filename: str) -> Extracted:
+    text = data.decode("utf-8", errors="replace")
+    conversations = group_conversations(parse_chat(text))
+    blocks = [
+        Block(
+            text=conversation.render(),
+            heading=", ".join(conversation.participants[:3])[:120],
+            occurred_at=conversation.starts_at,
+            meta={
+                "participants": conversation.participants,
+                "messages": len(conversation.messages),
+                "ends_at": conversation.ends_at.isoformat() if conversation.ends_at else None,
+            },
+        )
+        for conversation in conversations
+    ]
+    starts = [c.starts_at for c in conversations if c.starts_at]
+    return Extracted(
+        title=Path(filename).stem[:512] or "Chat",
+        blocks=blocks,
+        source_type="chat",
+        per_block=True,
+        occurred_at=min(starts) if starts else None,
+    )
