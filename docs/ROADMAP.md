@@ -113,6 +113,22 @@ Aadhaar card findable is the question that matters, and it is measured with the 
 the project already reports. CER on a handful of hand-checked images stays available as
 a spot-check, not as the headline.
 
+### Future work — images with no text
+
+OCR finds text. It does not describe pictures. A photo of a bike, a landscape, or an
+undiagrammed whiteboard extracts nothing and is therefore unfindable, however good the
+retrieval gets. Two files in the current corpus already behave this way.
+
+"Find the photo of my bike" is a real personal-memory query and it needs a different
+mechanism: a vision model captioning images at ingest, so there is text to embed.
+
+Not scheduled. Recorded so it is a decision someone makes rather than a gap someone
+discovers.
+
+Two related known weaknesses: handwriting, where tesseract is poor and paddle is
+better but still unbenchmarked behind its build arg; and audio, which left the
+critical path with Whisper, so voice notes are currently unsearchable.
+
 ### Cut order, from PRODUCT.md
 
 reranking → query transformation → extra connectors → entity resolution → native app
