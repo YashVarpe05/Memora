@@ -18,30 +18,44 @@ dist-ssr/
 .env.*
 !.env.example
 
-# Test corpus — real personal data, never commit
-data/corpus/*
-!data/corpus/.gitkeep
-# Unanchored too: a corpus dropped at any depth must never be committable.
+# ---------------------------------------------------------------------------
+# Personal data. Every rule here is UNANCHORED on purpose.
+#
+# A pattern containing a slash is anchored to this file's directory, so
+# `data/blobs/` matches only at the repo root. Commands in this project run from
+# apps/api, which is where blob_root and the corpus both resolved - and personal
+# documents were committed twice before this comment existed. `**/` makes the
+# depth irrelevant.
+#
+# Directory patterns exclude the directory itself, so git never descends and a
+# `!.../.gitkeep` re-include cannot work. Where a .gitkeep must survive, the rule
+# matches the CONTENTS (`/*`) instead.
+# ---------------------------------------------------------------------------
+
+# Test corpus - real personal documents
 **/data/corpus/*
 !**/data/corpus/.gitkeep
 
-# The gold-set draft carries extracted previews of those same personal files.
-# The finished GOLD.jsonl is committed; the draft never is.
-docs/GOLD.jsonl.draft
-*.draft
+# Stored uploads, content-addressed. Created at runtime, no .gitkeep needed.
+**/data/blobs/
 
-# Sample documents used for manual verification. Third-party PDFs, not ours to commit.
-data/samples/*
-!data/samples/.gitkeep
+# Sample documents for manual verification. Third-party PDFs, not ours to commit.
+**/data/samples/*
+!**/data/samples/.gitkeep
 
-# OCR benchmark inputs - photos of books, whiteboards, handwriting. Personal.
-data/ocr-bench/images/*
-data/ocr-bench/refs/*
-!data/ocr-bench/images/.gitkeep
-!data/ocr-bench/refs/.gitkeep
+# OCR benchmark inputs - photos of books, whiteboards, handwriting.
+**/data/ocr-bench/images/*
+**/data/ocr-bench/refs/*
+!**/data/ocr-bench/images/.gitkeep
+!**/data/ocr-bench/refs/.gitkeep
 
 # Eval output
-data/eval-runs/
+**/data/eval-runs/
+
+# The gold-set draft carries extracted previews of those same personal files.
+# The finished GOLD.jsonl is committed; the draft never is.
+**/GOLD.jsonl.draft
+*.draft
 
 # OS / editor
 .DS_Store
@@ -52,6 +66,3 @@ Thumbs.db
 
 # TS incremental build cache
 *.tsbuildinfo
-
-# Stored uploads. Personal documents, content-addressed.
-data/blobs/

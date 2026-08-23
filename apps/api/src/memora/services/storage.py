@@ -27,6 +27,7 @@ from pathlib import Path
 from uuid import UUID
 
 from memora.config import get_settings
+from memora.paths import repo_root
 
 _HASH_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -49,7 +50,19 @@ class StoredBlob:
 
 class BlobStore:
     def __init__(self, root: Path | None = None) -> None:
-        self._root = Path(root) if root else Path(get_settings().blob_root)
+        # Resolved against the repo root, not the working directory. A relative
+        # blob_root plus a command run from apps/api put personal documents in
+        # apps/api/data/blobs, outside the ignore rule that expected them at the
+        # top level. Where files land must not depend on where you were standing.
+        if root is not None:
+            self._root = Path(root)
+        else:
+            configured = Path(get_settings().blob_root)
+            # Anchored to the repo root, never to the working directory, and never
+            # "whichever happens to exist" - resolve() prefers a cwd-relative match,
+            # which is how a second blob tree appeared under apps/api in the first
+            # place. Where documents land must be one deterministic location.
+            self._root = configured if configured.is_absolute() else repo_root() / configured
 
     def _user_dir(self, user_id: UUID) -> Path:
         if not isinstance(user_id, UUID):

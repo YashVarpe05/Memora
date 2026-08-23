@@ -1,0 +1,20 @@
+#!/bin/sh
+# Refuse to commit personal documents.
+#
+# The ignore rules are the real defence; this catches the case where they are wrong,
+# which has happened twice - both times because a pattern was anchored to the repo root
+# while the command ran from apps/api.
+#
+# Enable with:  git config core.hooksPath .githooks
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+offenders=$(printf '%s\n' "$staged" | grep -E '(^|/)data/(corpus|blobs|samples|ocr-bench)/' | grep -v '\.gitkeep$')
+drafts=$(printf '%s\n' "$staged" | grep -E 'GOLD\.jsonl\.draft$')
+
+if [ -n "$offenders" ] || [ -n "$drafts" ]; then
+  echo "pre-commit: refusing to commit personal documents." >&2
+  printf '%s\n' "$offenders" "$drafts" | grep -v '^$' | sed 's/^/  /' >&2
+  echo >&2
+  echo "  Unstage them, then check .gitignore uses **/ so the rule works at any depth." >&2
+  exit 1
+fi
