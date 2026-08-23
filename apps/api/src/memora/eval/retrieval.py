@@ -23,14 +23,20 @@ from memora.paths import anchored, resolve
 
 REQUIRED_FIELDS = ("id", "query", "type")
 
+# The file-retrieval taxonomy, approved with the PRODUCT.md reframe. The previous set
+# was designed for chat: `cross_source` assumed an answer spanning several sources, but a
+# file answer is one file, and `multimodal` described nearly every row once the corpus was
+# mostly photographs. Modality is now a per-row field instead, so coverage across image,
+# document and calendar can be required separately from query type.
 KNOWN_TYPES = {
+    "document_identity",
     "metadata_only",
     "temporal_resolution",
-    "cross_source",
+    "visual_recall",
     "entity_resolution",
-    "semantic",
+    "content_semantic",
+    "disambiguation",
     "must_refuse",
-    "multimodal",
 }
 
 MIN_ROWS = 20
