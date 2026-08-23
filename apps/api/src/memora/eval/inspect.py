@@ -20,7 +20,7 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
-from memora.paths import resolve
+from memora.paths import anchored, resolve
 
 PREVIEW_CHARS = 200
 
@@ -316,18 +316,20 @@ def write_draft(rows: list[FileInfo], out: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="memora.eval.inspect")
-    parser.add_argument("--corpus", type=Path, default=Path("data/corpus"))
-    parser.add_argument("--out", type=Path, default=Path("docs/GOLD.jsonl.draft"))
+    parser.add_argument("--corpus", type=Path, default=None)
+    parser.add_argument("--out", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    corpus = resolve(args.corpus)
+    # An explicit --corpus is resolved as typed; the default is anchored to the repo
+    # root, so a stray data/corpus under apps/api cannot silently win.
+    corpus = resolve(args.corpus) if args.corpus else anchored("data/corpus")
     rows = inspect_corpus(corpus)
     render(rows, corpus)
 
     if not rows:
         return 1
 
-    out = resolve(args.out)
+    out = resolve(args.out) if args.out else anchored("docs/GOLD.jsonl.draft")
     out.parent.mkdir(parents=True, exist_ok=True)
     write_draft(rows, out)
     print(f"\n  wrote {out}")

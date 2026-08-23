@@ -12,7 +12,22 @@ def repo_root() -> Path:
 
 
 def resolve(path: Path) -> Path:
-    """Try the path as given, then relative to the repo root."""
+    """Resolve a path the user typed: as given, else relative to the repo root.
+
+    Only for explicit arguments. Do NOT use for defaults - it prefers whatever exists
+    relative to the current directory, so a stray `data/corpus` under apps/api silently
+    wins over the real one. Use `anchored()` for defaults.
+    """
     if path.exists() or path.is_absolute():
         return path
     return repo_root() / path
+
+
+def anchored(relative: str) -> Path:
+    """A project location, always the same one, whatever directory you are standing in.
+
+    Two bugs came from the alternative: a second blob tree under apps/api holding real
+    documents outside the ignore rule, and a decoy corpus that made the inspector report
+    one file instead of fifteen.
+    """
+    return repo_root() / relative

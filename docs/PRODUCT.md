@@ -139,7 +139,22 @@ today via a hosted API. Aadhaar (12 digits) and PAN (`ABCDE1234F`) patterns are 
 before embedding. The document stays findable by type, issuer, date and context; the
 number itself never leaves local storage.
 
-**Required for phase 4 ingestion.** Not built yet, and OCR must not ship without it.
+**Scope is Aadhaar and PAN, deliberately.** Phone numbers, addresses and account
+numbers are *not* masked. Both have weaker formats: an Indian mobile is `[6-9]\d{9}`,
+which also matches order numbers and reference IDs, and masking one of those silently
+destroys retrievable text that nobody notices until a search fails. Aadhaar carries a
+Verhoeff check digit and PAN has a distinctive shape, so both can be detected without
+guessing.
+
+State this as a scoped claim rather than a broad one. "Aadhaar and PAN are masked before
+anything leaves the machine; other personal data is out of scope because the
+false-positive cost exceeds the leak it would prevent" is defensible. "Everything is
+masked" is not, and is the kind of claim that collapses under one question.
+
+**Built and enforced.** `MaskedText` is the only type the embedder accepts, and it is
+verified on content rather than provenance - so a forged one carrying an identifier is
+rejected however it was constructed. Masking runs before storage as well as before the
+request, since a number sitting in the database has not stayed on the machine either.
 
 ---
 

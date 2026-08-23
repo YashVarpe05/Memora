@@ -19,7 +19,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from memora.paths import resolve
+from memora.paths import anchored, resolve
 
 REQUIRED_FIELDS = ("id", "query", "type")
 
@@ -185,12 +185,14 @@ def render(report: Report, corpus: Path) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="memora.eval.retrieval")
-    parser.add_argument("gold", type=Path, nargs="?", default=Path("docs/GOLD.jsonl"))
-    parser.add_argument("--corpus", type=Path, default=Path("data/corpus"))
+    parser.add_argument("gold", type=Path, nargs="?", default=None)
+    parser.add_argument("--corpus", type=Path, default=None)
     args = parser.parse_args(argv)
 
-    args.gold = resolve(args.gold)
-    args.corpus = resolve(args.corpus)
+    # Explicit arguments resolve as typed; defaults anchor to the repo root, so the
+    # gate always reads the same corpus whatever directory it runs from.
+    args.gold = resolve(args.gold) if args.gold else anchored("docs/GOLD.jsonl")
+    args.corpus = resolve(args.corpus) if args.corpus else anchored("data/corpus")
 
     if not args.gold.exists():
         print(f"error: gold set not found at {args.gold}", file=sys.stderr)
