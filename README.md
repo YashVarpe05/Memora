@@ -123,11 +123,14 @@ So **tesseract is the only working engine**, and OCR quality is bounded by it. T
 service reports this honestly: `available` lists engines that completed an inference,
 `installed` lists engines that merely imported.
 
-**Also measured: tesseract cannot read a laminated ID card.** `DSC02946.JPG`, a camera
-photo of a college ID, yields zero words across all four rotations and page-segmentation
-modes 3, 6 and 11 — twelve combinations, no text. That is a finding for the report, not a
-reason to drop the `document_identity` gold row: a row that fails at baseline for a
-stated reason is evidence.
+**Correction, same day.** An earlier version of this section claimed tesseract cannot
+read a laminated ID card. That was wrong: the file tested, `DSC02946.JPG`, turned out to
+be a candid outdoor photo that happens to contain a lanyard, not a photograph *of* a
+card. Twelve rotation and page-segmentation combinations returned no text, which is
+expected for a photo with no text in it and says nothing about cards.
+
+**No photograph of an ID card has been tested.** The claim will be worth making once one
+is in the corpus, and not before.
 
 ## Two database roles
 

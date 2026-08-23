@@ -64,6 +64,9 @@ known-local-folder = ["support"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101"]
+# The eval harnesses are CLIs, not servers. Blocking file reads inside an async
+# function are correct there; an async filesystem wrapper would buy nothing.
+"src/memora/eval/*" = ["ASYNC240"]
 "migrations/*" = ["E501", "I001"]
 
 [tool.pytest.ini_options]

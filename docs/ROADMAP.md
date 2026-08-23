@@ -108,9 +108,11 @@ Un-parked: OCR is the critical path now, so which engine wins actually matters.
 all - it dies in a oneDNN kernel at inference, in the Linux container as well as on
 Windows. Tesseract is the only working engine, so there is no engine comparison to
 make: OCR quality is whatever tesseract achieves. The benchmark's remaining value is
-measuring *that*, and the first measurement is already in: a laminated ID card
-photographed by a camera yields zero words across twelve rotation and
-page-segmentation combinations.
+measuring *that*, against real corpus documents.
+
+No ID-card measurement exists yet. An earlier note here reported one; the file tested
+was a candid photo containing a lanyard rather than a photograph of a card, so the
+result measured nothing about cards.
 
 **Runs on `data/corpus/` only.** No separate 20-image set, no hand-written transcripts —
 the corpus images are the images that will actually be searched.
