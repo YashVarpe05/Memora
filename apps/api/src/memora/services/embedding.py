@@ -12,7 +12,7 @@ import math
 from typing import Protocol
 
 from memora.config import get_settings
-from memora.services.masking import MaskedText
+from memora.services.masking import MaskedText, contains_identifier
 
 
 def _unit(vector: list[float]) -> list[float]:
@@ -25,10 +25,15 @@ class Embedder(Protocol):
 
 
 def require_masked(texts: list[MaskedText]) -> list[str]:
-    """Runtime guard, so a plain str fails loudly instead of being embedded.
+    """The last gate before text leaves the machine.
 
-    The type annotation alone is advisory in Python. This makes the rule enforced
-    rather than documented.
+    Two checks, and the second is the one that matters. The type check catches the
+    ordinary mistake of passing a raw string. The content check catches every way of
+    forging a MaskedText - ``object.__new__``, ``dataclasses.replace``, subclassing,
+    an imported token - because it inspects the text rather than trusting how the
+    object was built.
+
+    Provenance can always be faked in Python. Content cannot.
     """
     for text in texts:
         if not isinstance(text, MaskedText):
@@ -36,6 +41,11 @@ def require_masked(texts: list[MaskedText]) -> list[str]:
                 f"embed() requires MaskedText, got {type(text).__name__}. "
                 "Route the text through mask_identifiers() first - see PRODUCT.md "
                 "architectural rule 2."
+            )
+        if contains_identifier(text.value):
+            raise ValueError(
+                "Text reaching the embedder still contains an unmasked identifier. "
+                "A MaskedText was constructed without going through mask_identifiers()."
             )
     return [t.value for t in texts]
 

@@ -190,3 +190,86 @@ def test_gmail_thread_id_is_untouched():
 
     assert masked.value == url
     assert not masked.was_masked
+
+
+# --- adversarial: forging a MaskedText ----------------------------------------
+#
+# The token guards provenance, and an adversarial probe found four ways past it:
+# object.__new__, dataclasses.replace, subclassing, and importing the token. Every one
+# routes around __init__, which no construction-time check can prevent in a language
+# with object.__new__.
+#
+# So the guarantee is content, verified at construction AND at the embedder. Forging a
+# MaskedText is still possible; forging one that carries an identifier past the embedder
+# is not. These tests are the record of that, and an examiner may well try them live.
+
+RAW = "Aadhaar 234567890124 here"
+
+
+def forged_via_object_new() -> MaskedText:
+    """Skips __init__ entirely. Nothing at construction time can stop this."""
+    obj = object.__new__(MaskedText)
+    for name, value in (("_key", None), ("value", RAW), ("detections", ())):
+        object.__setattr__(obj, name, value)
+    return obj
+
+
+def test_object_new_forgery_is_stopped_at_the_embedder():
+    with pytest.raises(ValueError, match="unmasked identifier"):
+        require_masked([forged_via_object_new()])
+
+
+def test_dataclasses_replace_cannot_inject_raw_text():
+    """The likeliest accident: replace() reuses the real token from a valid instance."""
+    import dataclasses
+
+    with pytest.raises(ValueError, match="unmasked identifier"):
+        dataclasses.replace(mask_identifiers("clean"), value=RAW)
+
+
+def test_masked_text_cannot_be_subclassed():
+    with pytest.raises(TypeError, match="final"):
+
+        class Forged(MaskedText):
+            pass
+
+
+def test_importing_the_private_token_does_not_help():
+    """Provenance is forgeable. Content is not."""
+    from memora.services import masking
+
+    with pytest.raises(ValueError, match="unmasked identifier"):
+        MaskedText(masking._MINT, RAW, ())
+
+
+def test_pickle_roundtrip_of_a_forgery_is_still_stopped():
+    import pickle
+
+    revived = pickle.loads(pickle.dumps(forged_via_object_new()))
+
+    with pytest.raises(ValueError, match="unmasked identifier"):
+        require_masked([revived])
+
+
+def test_deepcopy_of_a_legitimate_instance_stays_valid():
+    """Copying masked text is not an attack, and must keep working."""
+    import copy
+
+    original = mask_identifiers("clean text")
+    assert require_masked([copy.deepcopy(original)]) == ["clean text"]
+
+
+def test_pickle_roundtrip_of_a_legitimate_instance_stays_valid():
+    import pickle
+
+    original = mask_identifiers("clean text")
+    assert require_masked([pickle.loads(pickle.dumps(original))]) == ["clean text"]
+
+
+def test_a_forgery_carrying_no_identifier_is_harmless():
+    """The check is about content, not ceremony. Clean text is clean however it arrived."""
+    obj = object.__new__(MaskedText)
+    for name, value in (("_key", None), ("value", "nothing sensitive"), ("detections", ())):
+        object.__setattr__(obj, name, value)
+
+    assert require_masked([obj]) == ["nothing sensitive"]

@@ -92,17 +92,36 @@ _MINT = object()
 
 @dataclass(frozen=True)
 class MaskedText:
-    """Text that has been through masking. The only type the embedder accepts."""
+    """Text that has been through masking. The only type the embedder accepts.
+
+    The token below guards provenance, but provenance alone is not enough: an
+    adversarial probe found four ways past it - ``object.__new__``,
+    ``dataclasses.replace``, subclassing, and importing ``_MINT``. Every one routes
+    around ``__init__`` or supplies the real token, which no construction-time check
+    can prevent in a language with ``object.__new__``.
+
+    So the real guarantee is content, checked here *and* again at the embedder:
+    a MaskedText carrying an unmasked identifier is rejected however it was built.
+    Forging one becomes pointless rather than merely difficult.
+    """
 
     _key: object = field(repr=False)
     value: str
     detections: tuple[Detection, ...]
+
+    def __init_subclass__(cls, **kwargs: object) -> None:
+        raise TypeError("MaskedText is final - subclassing would bypass its guarantee.")
 
     def __post_init__(self) -> None:
         if self._key is not _MINT:
             raise TypeError(
                 "MaskedText cannot be constructed directly - call mask_identifiers(). "
                 "Anything reaching the embedder must have passed through masking."
+            )
+        if _find_spans(self.value):
+            raise ValueError(
+                "MaskedText still contains an unmasked identifier. This is what "
+                "dataclasses.replace() on a masked instance produces."
             )
 
     def __str__(self) -> str:
@@ -114,6 +133,26 @@ class MaskedText:
     @property
     def was_masked(self) -> bool:
         return bool(self.detections)
+
+
+def _find_spans(text: str) -> list[tuple[int, int, str, str]]:
+    """Every identifier in `text`, as (start, end, kind, replacement)."""
+    spans: list[tuple[int, int, str, str]] = []
+    for match in _AADHAAR_RE.finditer(text):
+        if verhoeff_valid("".join(match.groups())):
+            spans.append((match.start(), match.end(), "aadhaar", AADHAAR_TOKEN))
+    for match in _PAN_RE.finditer(text):
+        spans.append((match.start(), match.end(), "pan", PAN_TOKEN))
+    return sorted(spans)
+
+
+def contains_identifier(text: str) -> bool:
+    """True when `text` still holds an unmasked Aadhaar or PAN.
+
+    This is the check that actually protects the claim, because it looks at the text
+    rather than at how the object was built.
+    """
+    return bool(_find_spans(text))
 
 
 def mask_identifiers(text: str) -> MaskedText:
@@ -128,17 +167,7 @@ def mask_identifiers(text: str) -> MaskedText:
     pieces: list[str] = []
     cursor = 0
 
-    spans: list[tuple[int, int, str, str]] = []
-
-    for match in _AADHAAR_RE.finditer(text):
-        digits = "".join(match.groups())
-        if verhoeff_valid(digits):
-            spans.append((match.start(), match.end(), "aadhaar", AADHAAR_TOKEN))
-
-    for match in _PAN_RE.finditer(text):
-        spans.append((match.start(), match.end(), "pan", PAN_TOKEN))
-
-    for start, end, kind, token in sorted(spans):
+    for start, end, kind, token in _find_spans(text):
         if start < cursor:  # overlapping match, keep the first
             continue
         pieces.append(text[cursor:start])
