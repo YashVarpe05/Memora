@@ -113,11 +113,21 @@ the inputs exist.
 **Parked.** Not on the critical path, and it needs 20 hand-written reference
 transcripts. The gate stays red until someone picks it up.
 
-**Known:** paddleocr 3.7 installs cleanly on Windows and then fails at inference with a
-oneDNN kernel error. The harness reports that once and exits 1 rather than writing an
-empty table. Don't reach for Colab — run it in a Linux container. The ingestion worker
-will be one in production, so a Windows number was measuring the wrong environment
-anyway.
+**Known, measured 2026-08-22: PaddleOCR does not run on this machine, in either OS.**
+paddlepaddle 3.3.1 installs cleanly and then dies at inference with
+`ConvertPirAttribute2RuntimeAttribute ... oneDNN` — on Windows *and* inside the Linux
+container. `FLAGS_use_mkldnn=0` does not help in either. An earlier note here said the
+container was the fix; that was wrong, and testing it is what showed so.
+
+So **tesseract is the only working engine**, and OCR quality is bounded by it. The
+service reports this honestly: `available` lists engines that completed an inference,
+`installed` lists engines that merely imported.
+
+**Also measured: tesseract cannot read a laminated ID card.** `DSC02946.JPG`, a camera
+photo of a college ID, yields zero words across all four rotations and page-segmentation
+modes 3, 6 and 11 — twelve combinations, no text. That is a finding for the report, not a
+reason to drop the `document_identity` gold row: a row that fails at baseline for a
+stated reason is evidence.
 
 ## Two database roles
 

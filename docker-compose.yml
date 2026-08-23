@@ -38,8 +38,10 @@ services:
     build:
       context: ./infra/ocr
       args:
-        # Tesseract alone satisfies phase 1. Rebuild with WITH_PADDLE=1 for the
-        # engine benchmark:  docker compose build --build-arg WITH_PADDLE=1 ocr
+        # Stays 0. Paddle was built and tested here on 2026-08-22 and cannot run:
+        # paddlepaddle 3.3.1 dies in a oneDNN kernel at inference, in the container
+        # as well as on Windows. A gigabyte of wheels that cannot execute is not
+        # worth the build time. See README, "Known".
         WITH_PADDLE: "0"
     container_name: memora-ocr
     environment:

@@ -104,6 +104,14 @@ sees them. They are the evidence that query understanding was necessary.
 
 Un-parked: OCR is the critical path now, so which engine wins actually matters.
 
+**Answered early, and not as expected.** PaddleOCR cannot run on this hardware at
+all - it dies in a oneDNN kernel at inference, in the Linux container as well as on
+Windows. Tesseract is the only working engine, so there is no engine comparison to
+make: OCR quality is whatever tesseract achieves. The benchmark's remaining value is
+measuring *that*, and the first measurement is already in: a laminated ID card
+photographed by a camera yields zero words across twelve rotation and
+page-segmentation combinations.
+
 **Runs on `data/corpus/` only.** No separate 20-image set, no hand-written transcripts —
 the corpus images are the images that will actually be searched.
 
