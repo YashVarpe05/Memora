@@ -64,7 +64,7 @@ async def chat(
     chunks = ChunkRepository(session, user_id)
     results = await chunks.search_dense(query_vector, settings.retrieval_top_k)
 
-    if has_weak_evidence(results):
+    if has_weak_evidence([r.similarity for r in results]):
         # Decided before the LLM is reachable. A model asked to refuse will sometimes
         # answer anyway, so the refusal is not delegated to it.
         return ChatResponse(

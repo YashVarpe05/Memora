@@ -7,8 +7,6 @@ number measured before the improvement exists.
 
 from __future__ import annotations
 
-from memora.repositories.chunk import ScoredChunk
-
 # GUESSED, AND NOW MEASURED TO BE WRONG. Do not trust this value.
 #
 # The name carries the warning on purpose: every read site has to type the word
@@ -35,13 +33,16 @@ from memora.repositories.chunk import ScoredChunk
 MIN_SIMILARITY_UNCALIBRATED = 0.35
 
 
-def has_weak_evidence(results: list[ScoredChunk]) -> bool:
-    """True when nothing retrieved is good enough to answer from.
+def has_weak_evidence(similarities: list[float]) -> bool:
+    """True when nothing retrieved is good enough to act on.
+
+    Takes scores rather than chunks so both layers can call it: layer one asks whether
+    the top document is worth showing, layer two whether there is enough to answer from.
 
     PRODUCT.md: when retrieval is weak the system says it doesn't have that. It never
     fills the gap from model knowledge - so this decision is made before the LLM is
     called, not left to the model's judgement.
     """
-    if not results:
+    if not similarities:
         return True
-    return max(r.similarity for r in results) < MIN_SIMILARITY_UNCALIBRATED
+    return max(similarities) < MIN_SIMILARITY_UNCALIBRATED

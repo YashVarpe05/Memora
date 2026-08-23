@@ -35,6 +35,7 @@ from sqlalchemy.pool import NullPool  # noqa: E402
 
 from memora.api.routers import chat as chat_router  # noqa: E402
 from memora.api.routers import files as files_router  # noqa: E402
+from memora.api.routers import search as search_router  # noqa: E402
 from memora.api.routers import uploads as uploads_router  # noqa: E402
 from memora.config import get_settings  # noqa: E402
 
@@ -113,6 +114,7 @@ async def api(app, db, doubles, test_user_id, blob_store):
     app.dependency_overrides[uploads_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[files_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[chat_router.get_embedder] = lambda: doubles["embedder"]
+    app.dependency_overrides[search_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[chat_router.get_generator] = lambda: doubles["generator"]
 
     async def _db():

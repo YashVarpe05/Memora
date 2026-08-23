@@ -118,6 +118,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Search */
+        post: operations["search_search_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/uploads": {
         parameters: {
             query?: never;
@@ -199,6 +216,56 @@ export interface components {
             role: string;
             /** Status */
             status: string;
+        };
+        /** SearchRequest */
+        SearchRequest: {
+            /**
+             * Limit
+             * @default 10
+             */
+            limit: number;
+            /** Query */
+            query: string;
+        };
+        /** SearchResponse */
+        SearchResponse: {
+            /** Documents In Window */
+            documents_in_window: number;
+            /** Reason */
+            reason?: string | null;
+            /** Refused */
+            refused: boolean;
+            /** Results */
+            results: components["schemas"]["SearchResult"][];
+            /** Total */
+            total: number;
+        };
+        /** SearchResult */
+        SearchResult: {
+            /** Byte Size */
+            byte_size: number;
+            /** File Url */
+            file_url: string;
+            /** Filename */
+            filename: string;
+            /** Matched Chunk Id */
+            matched_chunk_id: string;
+            /** Memory Id */
+            memory_id: string;
+            /** Page */
+            page: number | null;
+            /** Rank */
+            rank: number;
+            /** Score */
+            score: number;
+            /** Snippet */
+            snippet: string;
+            /** Source Type */
+            source_type: string;
+            /** Thumbnail Url */
+            thumbnail_url: string | null;
+            /** Title */
+            title: string;
         };
         /** UploadResponse */
         UploadResponse: {
@@ -388,6 +455,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    search_search_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
                 };
             };
             /** @description Validation Error */
