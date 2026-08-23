@@ -90,3 +90,63 @@ def test_ascii_fold_survives_a_cp1252_console():
     folded = ascii_safe("Academic Year 2026–27 — “quoted”")
     assert folded == 'Academic Year 2026-27 - "quoted"'
     folded.encode("cp1252")  # would raise if anything unencodable slipped through
+
+
+def test_calendar_preview_shows_events_not_the_header(tmp_path):
+    """Every .ics opens with the same boilerplate.
+
+    The generic text preview showed VCALENDAR/PRODID/VERSION/CALSCALE for any calendar
+    ever exported - four lines that say nothing about what is in it. A
+    temporal_resolution query is written from event names and dates.
+    """
+    ics = tmp_path / "cal.ics"
+    ics.write_text(
+        "BEGIN:VCALENDAR\n"
+        "PRODID:-//Google Inc//Google Calendar 70.9054//EN\n"
+        "VERSION:2.0\n"
+        "CALSCALE:GREGORIAN\n"
+        "BEGIN:VEVENT\n"
+        "DTSTART:20260214T090000Z\n"
+        "SUMMARY:Internship Interview\n"
+        "END:VEVENT\n"
+        "BEGIN:VEVENT\n"
+        "DTSTART:20260601T100000Z\n"
+        "SUMMARY:Viva\n"
+        "END:VEVENT\n"
+        "END:VCALENDAR\n",
+        encoding="utf-8",
+    )
+
+    rows = inspect_corpus(tmp_path)
+
+    assert rows[0].kind == "text"
+    assert "2 event(s)" in rows[0].detail
+    assert "2026-02 to 2026-06" in rows[0].detail
+    assert "Internship Interview" in rows[0].preview
+    assert "VCALENDAR" not in rows[0].preview
+
+
+def test_calendar_unfolds_wrapped_summaries(tmp_path):
+    """iCal folds long lines with a leading space; a wrapped name must survive."""
+    from memora.eval.inspect import read_calendar
+
+    raw = (
+        "BEGIN:VEVENT\n"
+        "DTSTART:20260101T090000Z\n"
+        "SUMMARY:Scholarship form deadline for the\n"
+        "  final year students\n"
+        "END:VEVENT\n"
+    )
+
+    _, preview = read_calendar(raw)
+
+    assert "final year students" in preview
+
+
+def test_calendar_with_no_named_events_says_so(tmp_path):
+    from memora.eval.inspect import read_calendar
+
+    detail, preview = read_calendar("BEGIN:VCALENDAR\nEND:VCALENDAR\n")
+
+    assert "0 event(s)" in detail
+    assert preview == "(no named events)"

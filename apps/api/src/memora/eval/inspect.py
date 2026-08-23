@@ -178,8 +178,42 @@ def read_audio(path: Path) -> tuple[str, str]:
     return detail, "(audio - transcript unknown until Whisper runs in phase 4)"
 
 
+def read_calendar(raw: str) -> tuple[str, str]:
+    """Event names and a date range, rather than the VCALENDAR header.
+
+    Every .ics opens with the same four boilerplate lines, so the generic text preview
+    tells you nothing about what is in the calendar - and a temporal_resolution query
+    is written from event names and dates, which is exactly what it was hiding.
+    """
+    # iCal folds long lines with a leading space; unfold before matching.
+    unfolded = raw.replace(chr(10) + " ", "").replace(chr(13) + chr(10) + " ", "")
+
+    summaries: list[str] = []
+    starts: list[str] = []
+    for line in unfolded.splitlines():
+        if line.startswith("SUMMARY:"):
+            value = line[len("SUMMARY:") :].strip()
+            if value:
+                summaries.append(value)
+        elif line.startswith("DTSTART"):
+            _, _, value = line.partition(":")
+            if len(value) >= 8 and value[:8].isdigit():
+                starts.append(value[:8])
+
+    span = ""
+    if starts:
+        real = sorted(d for d in starts if d > "19800101")
+        if real:
+            span = f" {real[0][:4]}-{real[0][4:6]} to {real[-1][:4]}-{real[-1][4:6]}"
+
+    detail = f"{len(summaries)} event(s){span}"
+    return detail, _clean(" | ".join(summaries[:12])) or "(no named events)"
+
+
 def read_text(path: Path) -> tuple[str, str]:
     raw = path.read_text(encoding="utf-8", errors="replace")
+    if path.suffix.lower() == ".ics":
+        return read_calendar(raw)
     lines = [ln for ln in raw.splitlines() if ln.strip()][:4]
     return f"{len(raw.splitlines())} lines", _clean(" / ".join(lines))
 
