@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     ocr_url: str = "http://localhost:8081"
     ocr_engine: str = "tesseract"
 
+    # Blob root. The path of any single file is derived from user_id + hash, so
+    # moving this is a config change rather than a data migration.
+    blob_root: str = "data/blobs"
+
     # Phase 1 has no auth. One server-side dev identity, injected exactly the way a
     # real one will be - never read from a request.
     dev_user_id: UUID = UUID("00000000-0000-4000-8000-000000000001")

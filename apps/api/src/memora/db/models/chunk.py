@@ -27,6 +27,9 @@ class Chunk(Base):
     )
 
     ordinal: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 1-based source page for PDFs, NULL for images and plain text. Populated at
+    # extraction so the viewer can open on the match rather than on page one.
+    page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=False)
     # Title + nearest heading, prepended before embedding so an isolated chunk still
     # carries where it came from. Stored separately so the cited text stays clean.

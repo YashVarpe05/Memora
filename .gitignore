@@ -52,3 +52,6 @@ Thumbs.db
 
 # TS incremental build cache
 *.tsbuildinfo
+
+# Stored uploads. Personal documents, content-addressed.
+data/blobs/

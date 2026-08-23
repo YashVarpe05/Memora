@@ -68,10 +68,16 @@ def extract_blocks(data: bytes) -> tuple[str, list[Block]]:
 
     body_size = _median(sizes) if sizes else 0.0
     blocks: list[Block] = []
-    for lines in pages:
+    for page_number, lines in enumerate(pages, start=1):
         for text, size in lines:
             is_heading = size > body_size * HEADING_RATIO and len(text) < 120
-            blocks.append(Block(text=text, heading=text if is_heading else None))
+            blocks.append(
+                Block(
+                    text=text,
+                    heading=text if is_heading else None,
+                    page=page_number,
+                )
+            )
 
     if not title:
         title = next((b.heading for b in blocks if b.heading), "") or "Untitled"
@@ -124,7 +130,9 @@ async def extract_pdf_via_ocr(
     for number, png in enumerate(pages, start=1):
         text = await ocr.read(png, f"{filename}#page{number}")
         blocks.extend(
-            Block(text=line.strip()) for line in text.splitlines() if line.strip()
+            Block(text=line.strip(), page=number)
+            for line in text.splitlines()
+            if line.strip()
         )
 
     return str(title).strip()[:512] or "Untitled", blocks

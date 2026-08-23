@@ -175,6 +175,10 @@
             "title": "Chunks",
             "type": "integer"
           },
+          "deduplicated": {
+            "title": "Deduplicated",
+            "type": "boolean"
+          },
           "identifiers_masked": {
             "title": "Identifiers Masked",
             "type": "integer"
@@ -197,7 +201,8 @@
           "title",
           "source_type",
           "chunks",
-          "identifiers_masked"
+          "identifiers_masked",
+          "deduplicated"
         ],
         "title": "UploadResponse",
         "type": "object"
@@ -333,6 +338,125 @@
         "summary": "Readiness",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/memories/{memory_id}": {
+      "delete": {
+        "description": "Rows, vectors and the file itself.\n\nPRODUCT.md claims erasure is demonstrable. A row removed while the document survives\non disk is not erasure, so the blob goes with it.",
+        "operationId": "delete_memory_memories__memory_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Memory",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/memories/{memory_id}/file": {
+      "get": {
+        "operationId": "get_file_memories__memory_id__file_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get File",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/memories/{memory_id}/thumbnail": {
+      "get": {
+        "operationId": "get_thumbnail_memories__memory_id__thumbnail_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Thumbnail",
+        "tags": [
+          "files"
         ]
       }
     },

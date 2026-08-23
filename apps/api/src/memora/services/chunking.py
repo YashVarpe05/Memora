@@ -52,6 +52,8 @@ class Block:
 
     text: str
     heading: str | None = None
+    # 1-based source page for PDFs, None for images and plain text.
+    page: int | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +62,8 @@ class TextChunk:
     contextual_prefix: str
     token_count: int
     ordinal: int
+    # The page the chunk starts on, so click-through opens on the match.
+    page: int | None = None
 
 
 def _overlap_tail(text: str, counter: TokenCounter, tokens: int) -> str:
@@ -83,10 +87,11 @@ def chunk_blocks(
     chunks: list[TextChunk] = []
     buffer: list[str] = []
     heading: str | None = None
+    page: int | None = None
     overlap_tokens = int(TARGET_TOKENS * OVERLAP_RATIO)
 
     def flush(carry: bool) -> None:
-        nonlocal buffer
+        nonlocal buffer, page
         body = " ".join(buffer).strip()
         if not body:
             return
@@ -97,13 +102,19 @@ def chunk_blocks(
                 contextual_prefix=prefix[:512],
                 token_count=counter.count(body),
                 ordinal=len(chunks),
+                page=page,
             )
         )
         buffer = [_overlap_tail(body, counter, overlap_tokens)] if carry else []
+        # The next chunk starts wherever its first block is.
+        page = None
 
     for block in blocks:
         if block.heading:
             heading = block.heading
+        if page is None and block.page is not None:
+            # The page a chunk starts on; later blocks may spill onto the next.
+            page = block.page
         candidate = " ".join([*buffer, block.text]).strip()
         if counter.count(candidate) > MAX_TOKENS and buffer:
             flush(carry=True)
@@ -122,6 +133,7 @@ def chunk_blocks(
             contextual_prefix=chunks[-1].contextual_prefix,
             token_count=counter.count(merged),
             ordinal=chunks[-1].ordinal,
+            page=chunks[-1].page,
         )
     return chunks
 

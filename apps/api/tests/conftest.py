@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine  # no
 from sqlalchemy.pool import NullPool  # noqa: E402
 
 from memora.api.routers import chat as chat_router  # noqa: E402
+from memora.api.routers import files as files_router  # noqa: E402
 from memora.api.routers import uploads as uploads_router  # noqa: E402
 from memora.config import get_settings  # noqa: E402
 
@@ -82,6 +83,14 @@ async def db(test_user_id):
 
 
 @pytest.fixture
+def blob_store(tmp_path):
+    """Isolated blob root per test, so uploads never write into the repo."""
+    from memora.services.storage import BlobStore
+
+    return BlobStore(root=tmp_path / "blobs")
+
+
+@pytest.fixture
 def doubles():
     from support import FakeCounter, FakeEmbedder, FakeGenerator, FakeOcr
 
@@ -94,13 +103,15 @@ def doubles():
 
 
 @pytest_asyncio.fixture
-async def api(app, db, doubles, test_user_id):
+async def api(app, db, doubles, test_user_id, blob_store):
     """Client with the LLM, embedder and tokenizer replaced, sharing the test's session."""
     from memora.api.deps import current_user_id, get_db
 
     app.dependency_overrides[uploads_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[uploads_router.get_counter] = lambda: doubles["counter"]
     app.dependency_overrides[uploads_router.get_ocr] = lambda: doubles["ocr"]
+    app.dependency_overrides[uploads_router.get_blob_store] = lambda: blob_store
+    app.dependency_overrides[files_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[chat_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[chat_router.get_generator] = lambda: doubles["generator"]
 

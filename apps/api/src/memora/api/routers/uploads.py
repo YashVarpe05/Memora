@@ -22,6 +22,7 @@ from memora.services.extraction import (
 )
 from memora.services.masking import mask_all
 from memora.services.ocr import OcrClient, OcrUnavailable, build_ocr_client
+from memora.services.storage import BlobStore, build_blob_store, make_thumbnail
 
 router = APIRouter(tags=["uploads"])
 
@@ -34,6 +35,7 @@ class UploadResponse(BaseModel):
     source_type: str
     chunks: int
     identifiers_masked: int
+    deduplicated: bool
 
 
 def get_embedder() -> Embedder:
@@ -48,9 +50,14 @@ def get_ocr() -> OcrClient:
     return build_ocr_client()
 
 
+def get_blob_store() -> BlobStore:
+    return build_blob_store()
+
+
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 CounterDep = Annotated[TokenCounter, Depends(get_counter)]
 OcrDep = Annotated[OcrClient, Depends(get_ocr)]
+BlobStoreDep = Annotated[BlobStore, Depends(get_blob_store)]
 DocumentUpload = Annotated[UploadFile, File(...)]
 
 
@@ -62,12 +69,31 @@ async def upload_document(
     embedder: EmbedderDep,
     counter: CounterDep,
     ocr: OcrDep,
+    blobs: BlobStoreDep,
 ) -> UploadResponse:
     data = await file.read()
     filename = file.filename or "upload"
 
     if len(data) > MAX_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File exceeds 25 MB")
+
+    memories = MemoryRepository(session, user_id)
+
+    # Store the bytes first. Extraction can fail; the document should still be on disk
+    # and re-processable rather than lost with the request.
+    stored = blobs.put(user_id, data)
+    existing = await memories.find_by_hash(stored.content_hash)
+    if existing is not None:
+        # Same owner, same bytes. Nothing to re-ingest.
+        chunk_count = await ChunkRepository(session, user_id).count_for_memory(existing.id)
+        return UploadResponse(
+            memory_id=str(existing.id),
+            title=existing.title,
+            source_type=existing.source_type,
+            chunks=chunk_count,
+            identifiers_masked=0,
+            deduplicated=True,
+        )
 
     if is_pdf(data):
         source_type = "pdf"
@@ -120,14 +146,22 @@ async def upload_document(
         )
     )
 
-    memories = MemoryRepository(session, user_id)
     chunks = ChunkRepository(session, user_id)
+
+    mime = "application/pdf" if source_type == "pdf" else (image_mime(data) or "")
+    thumbnail = make_thumbnail(data, mime)
+    if thumbnail:
+        blobs.put_thumbnail(user_id, stored.content_hash, thumbnail)
 
     memory = await memories.create(
         source_type=source_type,
         title=title,
-        # Stored as data. Never joined onto a path.
+        # Display metadata. Never joined onto a path.
         filename=filename,
+        content_hash=stored.content_hash,
+        byte_size=stored.byte_size,
+        mime_type=mime,
+        has_thumbnail=thumbnail is not None,
     )
     await chunks.add_many(
         memory.id,
@@ -137,6 +171,7 @@ async def upload_document(
                 text=body.value,
                 contextual_prefix=prefix.value,
                 token_count=c.token_count,
+                page=c.page,
                 embedding=vector,
             )
             for c, body, prefix, vector in zip(
@@ -154,4 +189,5 @@ async def upload_document(
         source_type=source_type,
         chunks=len(text_chunks),
         identifiers_masked=masked_count,
+        deduplicated=False,
     )
