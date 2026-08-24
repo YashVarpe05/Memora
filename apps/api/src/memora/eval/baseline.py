@@ -279,8 +279,13 @@ def render(metrics: Metrics, meta: dict) -> str:
         f"- Corpus: {meta['documents']} documents, {meta['chunks']} chunks",
         f"- Gold set: {len(metrics.outcomes)} queries "
         f"({len(metrics.retrieval_rows)} retrieval, {len(metrics.refusal_rows)} refusal)",
-        "- Retrieval: plain dense cosine over `gemini-embedding-001` at 768 dims. "
-        "No query understanding, no BM25, no reranking.",
+        (
+            "- Retrieval: dense cosine over `gemini-embedding-001` at 768 dims, with "
+            "stage 1 filters applied as boosts."
+            if meta.get("stage1")
+            else "- Retrieval: plain dense cosine over `gemini-embedding-001` at 768 "
+            "dims. No query understanding, no BM25, no reranking."
+        ),
         (
             f"- Ingest took {meta['ingest_seconds']}s, almost all of it free-tier "
             "rate limiting."
@@ -511,14 +516,27 @@ async def run(
         "documents": documents,
         "chunks": chunks,
         "ingest_seconds": elapsed,
+        "stage1": stage1,
     }
+    report = render(metrics, meta)
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(render(metrics, meta), encoding="utf-8", newline="\n")
+    out.write_text(report, encoding="utf-8", newline="\n")
+
+    # Also archived under a timestamp, never overwritten. The phase 3 result once existed
+    # only in console output, because a later and worse run overwrote the named file - so
+    # it had to be transcribed by hand into a results document. A hand-copied number is
+    # exactly the sort that survives into a report and cannot be reproduced.
+    archive = anchored("data/eval-runs") / (
+        f"{datetime.now(UTC):%Y%m%dT%H%M%S}-{'stage1' if stage1 else 'dense'}.md"
+    )
+    archive.parent.mkdir(parents=True, exist_ok=True)
+    archive.write_text(report, encoding="utf-8", newline="\n")
 
     print()
     print(f"  Recall@1 {metrics.recall_at(1):.3f}   Recall@5 {metrics.recall_at(5):.3f}   "
           f"MRR@{MRR_DEPTH} {metrics.mrr:.3f}   refusal {metrics.refusal_accuracy:.3f}")
     print(f"  wrote {out}")
+    print(f"  archived {archive}")
     return 0
 
 

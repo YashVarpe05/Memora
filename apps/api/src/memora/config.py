@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     gemini_api_key: str | None = None
+    # Measured 2026-08-24: free-tier generateContent is 20 requests/day PER MODEL, and
+    # stage 1 is one call per query, so a 21-query eval does not fit in one model's
+    # daily budget. The fix is the stage 1 cache, NOT a different model: switching to
+    # gemini-flash-lite-latest for headroom dropped Recall@1 from 0.947 to 0.789,
+    # because a weaker extractor produces wrong filters and a wrong filter actively
+    # demotes the correct answer. Changing this changes what is being measured.
     gemini_model: str = "gemini-2.5-flash"
     embedding_model: str = "gemini-embedding-001"
     # Pinned in DDL as vector(768). gemini-embedding-001 defaults to 3072, so this
@@ -33,6 +39,10 @@ class Settings(BaseSettings):
     embedding_dims: int = 768
 
     retrieval_top_k: int = 5
+
+    # Cache stage 1 extractions by query text AND prompt. For evaluation only: the
+    # gold set runs the same 21 strings, so a warm cache makes repeat runs free.
+    stage1_cache: bool = False
 
     # OCR runs in a container (infra/ocr), bound to loopback.
     ocr_url: str = "http://localhost:8081"

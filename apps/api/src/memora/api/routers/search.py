@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from memora.api.deps import CurrentUserDep, DbDep
+from memora.config import get_settings
 from memora.repositories.chunk import ChunkRepository
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.masking import mask_identifiers
@@ -84,7 +85,14 @@ def get_embedder() -> Embedder:
 
 
 def get_query_understanding() -> QueryUnderstanding:
-    return build_query_understanding()
+    settings = get_settings()
+    inner = build_query_understanding()
+    if not settings.stage1_cache:
+        return inner
+
+    from memora.services.stage1_cache import CachingQueryUnderstanding
+
+    return CachingQueryUnderstanding(inner, model=settings.gemini_model)
 
 
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]

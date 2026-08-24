@@ -1,15 +1,13 @@
 # Phase 3 — query understanding
 
 Measured 2026-08-24 against the same indexed corpus as `BASELINE.md` (11 documents,
-377 chunks), both arms in one session.
+377 chunks).
 
-**Provenance note.** These numbers come from a run made while stage 1 was working. The
-free-tier `generateContent` quota was exhausted shortly afterwards, and a later run
-silently fell back on every query and reported the dense-only numbers under a stage 1
-label. That is what prompted the failure-visibility work described below; the harness now
-refuses such a run. This file was written by hand from the good run's output and should be
-regenerated when quota resets, with `uv run python -m memora.eval.baseline --out
-docs/PHASE3.md`.
+**Provenance.** The headline numbers come from a run made while stage 1 was working on
+`gemini-2.5-flash`, transcribed by hand from console output because a later run
+overwrote the file. Every run is now archived under `data/eval-runs/` so that cannot
+recur. Regenerate with `uv run python -m memora.eval.baseline --out docs/PHASE3.md` when
+the daily quota allows — see the budget section for why that is not simply "tomorrow".
 
 ## Result
 
@@ -20,17 +18,8 @@ docs/PHASE3.md`.
 | MRR@10 | 0.895 | 0.947 | +0.052 |
 | Refusal accuracy | 0.000 (0/2) | 0.000 (0/2) | — |
 
-Two rows moved, both from rank 2 to rank 1. Nothing regressed.
-
-| id | type | dense | stage 1 |
-|---|---|---|---|
-| q006 | `entity_resolution` | 2 | **1** |
-| q007 | `visual_recall` | 2 | **1** |
-| q019 | `visual_recall` | miss | miss |
-| q020 | `must_refuse` | answered | answered |
-| q021 | `must_refuse` | answered | answered |
-
-All other 16 rows were rank 1 in both arms.
+q006 and q007 moved rank 2 → 1. Nothing regressed. The other 16 answerable rows were
+rank 1 in both arms; q019 missed in both; q020 and q021 answered in both.
 
 ## Predictions, marked
 
@@ -38,96 +27,117 @@ Recorded in `prompts/phase-3-query-understanding.md` before implementing.
 
 | prediction | outcome |
 |---|---|
-| q006 fixed, **but at risk** from strict source-type filtering | **HELD.** Fixed. The risk was real and was avoided by design: stage 1 returned `source_types: ["email", "pdf"]` because the prompt tells it that scanned emails are PDFs. A strict filter on `email` alone would have excluded the answer. |
-| q007 fixed — highest confidence | **HELD, but only on the second attempt.** See below. The first implementation made it *worse*, and the cause was not the one predicted. |
-| q019 does not move — the control | **HELD.** Still a miss. Its file is not indexed, and nothing in stage 1 could change that. |
-| q020 / q021 not fixed by filtering | **HELD.** Both still answered. Refusal is not a filtering problem. |
-| Recall@1 will not improve much and may dip | **BROKEN.** It improved by 0.105, the largest single change in the project. Two of nineteen rows is a bigger fraction than the prediction assumed, and nothing regressed. |
-| `disambiguation` rows unaffected | **HELD.** All four rank 1 in both arms. |
+| q006 fixed, **at risk** from strict source-type filtering | **HELD.** Stage 1 returned `["email", "pdf"]` because the prompt states that scanned emails are PDFs. A strict `email` filter would have excluded the answer. |
+| q007 fixed — highest confidence | **HELD, on the second attempt.** The first made it worse, for an unpredicted reason. See below. |
+| q019 does not move — the control | **HELD.** Still a miss; its file is not indexed. |
+| q020 / q021 not fixed by filtering | **HELD.** Refusal is not a filtering problem. |
+| Recall@1 will not improve much, may dip | **BROKEN.** +0.105, the largest single change in the project. |
+| `disambiguation` unaffected | **HELD.** |
 
-## The prediction that broke, and what it revealed
+## The methodology finding
 
-q007 was the highest-confidence prediction, and the first implementation **made it
-worse** — from rank 2 to outside the top 3.
+q007 was the highest-confidence prediction, and the first implementation **made it worse**
+— rank 2 to outside the top 3 — while **Recall@1 still rose to 0.895**.
 
-The filter was correct. Stage 1 returned `source_types: ["image"]` for "the screenshot of
-that dashboard with the forms on it", which is exactly right. The damage came from
-somewhere else entirely: stage 1 also **rewrote the query** to "dashboard with the forms",
-and that rewrite dropped the word carrying the match.
+The headline improved and a row silently regressed. Without a written prediction naming
+q007 specifically, that regression is invisible: the summary metric looked like a win, and
+query rewriting would have shipped as an improvement while costing accuracy elsewhere.
 
-Isolated by embedding each version directly:
+The cause was not the filter. Stage 1 correctly returned `source_types: ["image"]` for
+"the screenshot of that dashboard with the forms on it". The damage came from stage 1 also
+**rewriting the query** to "dashboard with the forms", dropping the word carrying the
+match:
 
-| query embedded | target rank | raw similarity |
+| query embedded | rank | raw similarity |
 |---|---|---|
-| "the screenshot of that dashboard with the forms on it" | 2 | 0.547 |
-| "dashboard with the forms" (stage 1's rewrite) | 4 | 0.509 |
+| the user's own words | 2 | 0.547 |
+| stage 1's rewrite | 4 | 0.509 |
 
-A loss of 0.038 similarity and two ranks — more than the +0.08 source-type boost could
-recover, so a *correct* filter still produced a worse result.
+A loss larger than the +0.08 boost could recover, so a *correct* filter still produced a
+worse result. **Stage 1 is trusted for filters, not for rewriting.** The user's words are
+the query; stage 1's job is constraints, not paraphrase.
 
-**The fix is to trust stage 1 for filters and not for rewriting.** The user's own words
-are embedded; `semantic_query` is still returned so it can be inspected, and is no longer
-used. With that change q007 goes to rank 1 and the prediction holds.
+This is the argument for pre-registered predictions, demonstrated on this project's own
+data rather than asserted.
 
-This is the most useful thing in the run. Query rewriting was never in the plan and was
-added without being measured, and it would have been invisible without a prediction to
-violate: Recall@1 still rose to 0.895 on the first attempt, so the headline improved while
-one row silently regressed.
+## A wrong filter is worse than no filter
 
-## Stage 1 cost
+Substituting `gemini-flash-lite-latest` for `gemini-2.5-flash` — done to work around the
+quota limit below — dropped **Recall@1 from 0.947 to 0.789, beneath the dense-only
+baseline.** Three rows that were rank 1 fell to ranks 3, 5 and 5.
 
-An extra model call on every search, before retrieval starts.
+The soft-filter design bounds this but does not remove it: a mismatching document is
+demoted by `FILTER_BONUS`, so a *wrong* extraction actively pushes the correct answer
+down. A strict filter would have removed it entirely, which is worse, but "soft" is not
+"safe".
 
-- 2.2 s to 3.0 s per query, on the free tier
-- Search latency roughly triples: retrieval is tens of milliseconds
+Two consequences worth carrying:
 
-That is a real trade-off and belongs in the honest version. Two mitigations exist and
-neither is implemented: cache extractions by query text, and skip stage 1 when the query
-carries no filterable signal. Both are deferrable — the number is what matters now.
+- **The extractor model is part of the measurement.** Changing it changes the result, so
+  it is pinned in config with this note attached.
+- Switching models to dodge a quota limit silently changed what was being measured. The
+  contaminated run is preserved at `data/eval-runs/20260824T200831-stage1.md`.
+
+## Budget — the binding constraint
+
+Measured against the live API, not read from documentation:
+
+| quota | limit | stage 1 eval cost | ingest cost |
+|---|---|---|---|
+| `generate_content_free_tier_requests` | **20 / day / model** | **21 per run** | 0 |
+| `embed_content_free_tier_requests` | 1000 / day | 21 per run | ~377 |
+
+**A single 21-query stage-1 evaluation does not fit in one day's generate budget.** Not
+"fewer than three runs" — fewer than one. Embeddings are not the constraint; generation is,
+by a factor of twenty.
+
+The fix is the stage 1 cache (`STAGE1_CACHE=true`), keyed on **query text and the system
+prompt and the model**. The gold set runs the same 21 strings forever, so a warm cache
+makes repeat runs cost zero generate calls, and the embed budget then allows roughly 47
+evaluations a day. Changing the prompt or the model invalidates every entry, which is
+correct: keying on the query alone would serve stale extractions after a prompt change and
+the run would look fine while measuring the previous prompt.
+
+A cold run still needs 21 calls against a 20/day limit, so the first population of the
+cache has to span two days or use a second model deliberately and be discarded as a
+measurement.
+
+## Stage 1 latency
+
+- `gemini-2.5-flash`: 2.2 s – 3.0 s per query
+- `gemini-flash-lite-latest`: median 973 ms, range 272 – 1609 ms
+
+Retrieval itself is tens of milliseconds, so search latency goes from ~0.05 s to ~3 s.
+**Caching fixes the evaluation loop, not real use** — a first-time query still pays the
+call. That is a genuine trade-off for the report, not a bug. Untested mitigations: skip
+stage 1 when the query carries no filterable signal, or run it concurrently with the
+unfiltered search and apply boosts when it returns.
 
 ## Refusal is not a threshold problem
 
-Refusal accuracy stayed at 0.000, as predicted. The calibration data explains why no
+Refusal accuracy stayed at 0.000, as predicted, and the distribution explains why no
 threshold fixes it:
 
-| score | id | type |
-|---|---|---|
-| 0.538 | q020 | `must_refuse` |
-| 0.554 | q019 | `visual_recall` |
-| 0.599 | q017 | `metadata_only` |
-| ... | | |
-| 0.645 | q004 | `disambiguation` |
-| **0.647** | **q021** | **`must_refuse`** |
-| 0.651 | q013 | `entity_resolution` |
-| ... | | |
-| 0.801 | q002 | `content_semantic` |
+```
+0.538  q020  must_refuse      ← lowest score in the set
+...
+0.647  q021  must_refuse      ← above NINE correct answers
+...
+0.775  q005  content_semantic
+```
 
-q020 ("my passport") is the lowest score in the set, so a threshold around 0.55 would
-catch it. But **q021 ("my college fee receipt") scores 0.647, above nine genuinely
-successful queries.** Catching it would mean refusing q004, q017, q016, q010, q009, q007,
-q003 and q013 — eight correct answers thrown away to reject one absent document.
+q020 ("my passport") is separable. q021 ("my college fee receipt") is not: catching it
+would mean refusing eight correct answers. The calendar genuinely contains events about
+college and fees, so the similarity is real. **Absence is not low similarity.**
 
-**No single similarity threshold separates absent from present in this corpus.** The
-reason is not noise: the calendar genuinely contains events about college and fees, so
-there really is something similar. Absence is not detectable as low similarity.
-
-Refusal needs a different signal. Candidates, none tested:
-
-- **Margin between rank 1 and rank 2.** A real match usually stands out; a spurious one
-  sits in a flat field of near-identical scores.
-- **Document-type agreement.** Stage 1 extracts `document_type: receipt`; if nothing in
-  the corpus is a receipt, refuse regardless of similarity. This is the most promising,
-  because it tests the same thing the user is asking.
-- **Absolute evidence rather than relative.** Does any chunk actually contain the terms.
-
-The scores above are boosted rather than raw — the raw-score capture landed after quota
-was exhausted. The interleaving conclusion does not depend on it: q021 outranks nine
-correct answers either way.
+Refusal needs a different signal. Most promising: **document-type agreement** — stage 1
+extracts `document_type: receipt`, nothing in the corpus is a receipt, refuse regardless
+of score. That tests the same thing the user asked, rather than a proxy for it.
 
 ## Known limitations, unchanged
 
-- `document_identity` remains unmeasured: no ID-card photo in the corpus.
+- `document_identity` unmeasured: no ID-card photo in the corpus.
 - Three corpus files contain no extractable text and are unfindable by any query.
 - Tesseract is the only working OCR engine on this hardware.
-- 19 retrieval rows means one row is 0.053 of Recall@1. Read absolute counts, not
+- 19 retrieval rows means one row is 0.053 of Recall@1. Read the counts, not the
   fractions, and do not read significance into a difference of one.
