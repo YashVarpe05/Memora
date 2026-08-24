@@ -226,6 +226,11 @@ export interface components {
             limit: number;
             /** Query */
             query: string;
+            /**
+             * Stage1
+             * @default true
+             */
+            stage1: boolean;
         };
         /** SearchResponse */
         SearchResponse: {
@@ -235,12 +240,18 @@ export interface components {
             corpus_exhausted: boolean;
             /** Documents In Window */
             documents_in_window: number;
+            /** Filters */
+            filters?: {
+                [key: string]: unknown;
+            } | null;
             /** Reason */
             reason?: string | null;
             /** Refused */
             refused: boolean;
             /** Results */
             results: components["schemas"]["SearchResult"][];
+            /** Stage1 Ms */
+            stage1_ms?: number | null;
             /** Total */
             total: number;
             /** Widenings */
@@ -262,6 +273,8 @@ export interface components {
             page: number | null;
             /** Rank */
             rank: number;
+            /** Raw Score */
+            raw_score: number;
             /** Score */
             score: number;
             /** Snippet */

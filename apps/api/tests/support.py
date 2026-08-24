@@ -117,3 +117,29 @@ def make_png(width: int = 40, height: int = 20) -> bytes:
     buffer = io.BytesIO()
     Image.new("RGB", (width, height), "white").save(buffer, format="PNG")
     return buffer.getvalue()
+
+
+class FakeStageOne:
+    """Canned query understanding. Deterministic, and never calls the API.
+
+    Defaults to no constraints, which is the passthrough behaviour, so a test only sets
+    filters when it is specifically about filtering.
+    """
+
+    def __init__(self, **filters) -> None:
+        self.filters = filters
+        self.calls: list[str] = []
+
+    async def extract(self, query: str):
+        from memora.services.query_understanding import QueryFilters
+
+        self.calls.append(query)
+        return QueryFilters(
+            semantic_query=self.filters.get("semantic_query", query),
+            source_types=tuple(self.filters.get("source_types", ())),
+            sender=self.filters.get("sender"),
+            entities=tuple(self.filters.get("entities", ())),
+            after=self.filters.get("after"),
+            before=self.filters.get("before"),
+            raw=dict(self.filters) or {},
+        )

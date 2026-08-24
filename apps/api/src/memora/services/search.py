@@ -55,6 +55,68 @@ MAX_WINDOW = 2000
 
 SNIPPET_CHARS = 280
 
+# --- stage 1 filters, applied as boosts ------------------------------------------
+#
+# Matching a filter adds to a document's score; mismatching subtracts. Nothing is ever
+# excluded.
+#
+# The reason is `mail.pdf` in the real corpus: a scanned print of a Gmail message, so its
+# source_type is `pdf` while the query calls it "the mail". A strict `source_type: email`
+# filter removes the correct answer and scores worse than no filtering at all. In a
+# personal archive the format a thing arrives in rarely matches what it is, so a filter
+# is evidence rather than truth.
+#
+# Additive rather than multiplicative because observed similarities sit in a narrow band
+# (roughly 0.43 to 0.80), where a fixed increment is easier to reason about than a ratio.
+FILTER_BONUS = 0.08
+
+
+@dataclass(frozen=True)
+class Boosts:
+    """What stage 1 asks for. Every field optional; empty means no opinion."""
+
+    source_types: tuple[str, ...] = ()
+    sender: str | None = None
+    after: object | None = None
+    before: object | None = None
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.source_types or self.sender or self.after or self.before)
+
+
+def boosted_score(hit: ChunkHit, boosts: Boosts) -> float:
+    """A hit's score after stage 1's opinion is applied.
+
+    Returned separately from `hit.similarity`, which stays raw. Refusal is decided on the
+    raw score on purpose: whether there is genuinely good evidence should not change
+    because stage 1 guessed a source type, and a threshold calibrated against boosted
+    scores would drift every time the boost constant moved.
+    """
+    if boosts.is_empty:
+        return hit.similarity
+
+    score = hit.similarity
+
+    if boosts.source_types:
+        score += FILTER_BONUS if hit.source_type in boosts.source_types else -FILTER_BONUS
+
+    if boosts.sender:
+        sender = (hit.sender or "").lower()
+        wanted = boosts.sender.lower()
+        if sender and (wanted in sender or sender in wanted):
+            score += FILTER_BONUS
+
+    if (boosts.after or boosts.before) and hit.occurred_at is not None:
+        within = True
+        if boosts.after and hit.occurred_at < boosts.after:
+            within = False
+        if boosts.before and hit.occurred_at > boosts.before:
+            within = False
+        score += FILTER_BONUS if within else -FILTER_BONUS
+
+    return score
+
 
 @dataclass(frozen=True)
 class DocumentResult:
@@ -64,6 +126,8 @@ class DocumentResult:
     filename: str
     source_type: str
     score: float
+    # Before stage 1's boosts. Kept so a result can be explained.
+    raw_score: float
     snippet: str
     matched_chunk_id: UUID
     page: int | None
@@ -74,6 +138,8 @@ class DocumentResult:
 @dataclass(frozen=True)
 class SearchOutcome:
     results: list[DocumentResult]
+    # Best unboosted similarity. Refusal is decided on this.
+    raw_top_score: float
     # Observability for the bound above, so it is never a silent truncation.
     chunks_examined: int
     documents_in_window: int
@@ -85,24 +151,29 @@ def initial_window(limit: int) -> int:
     return max(limit, 1) * INITIAL_FANOUT
 
 
-def group_by_document(hits: list[ChunkHit]) -> list[ChunkHit]:
-    """One hit per document: its best chunk.
+def group_by_document(
+    hits: list[ChunkHit], boosts: Boosts | None = None
+) -> list[tuple[ChunkHit, float]]:
+    """One hit per document, paired with its boosted score.
 
     A document scores as its best chunk. For finding a document that is the right call -
     one strong match identifies it, while averaging dilutes a short decisive match with
     the rest of a long file. It is a knob the baseline will test, not a truth.
     """
-    best: dict[UUID, ChunkHit] = {}
+    applied = boosts or Boosts()
+    best: dict[UUID, tuple[ChunkHit, float]] = {}
     for hit in hits:
+        score = boosted_score(hit, applied)
         current = best.get(hit.memory_id)
-        if current is None or hit.similarity > current.similarity:
-            best[hit.memory_id] = hit
-    return sorted(best.values(), key=lambda h: h.similarity, reverse=True)
+        if current is None or score > current[1]:
+            best[hit.memory_id] = (hit, score)
+    return sorted(best.values(), key=lambda pair: pair[1], reverse=True)
 
 
 async def search_documents(
     fetch: Callable[[int], Awaitable[list[ChunkHit]]],
     limit: int,
+    boosts: Boosts | None = None,
 ) -> SearchOutcome:
     """Retrieve, group, and widen until enough documents surface.
 
@@ -123,7 +194,7 @@ async def search_documents(
     while True:
         hits = await fetch(window)
         corpus_exhausted = len(hits) < window
-        grouped = group_by_document(hits)
+        grouped = group_by_document(hits, boosts)
 
         if len(grouped) >= limit or corpus_exhausted or window >= MAX_WINDOW:
             break
@@ -131,9 +202,12 @@ async def search_documents(
         window = min(window * 2, MAX_WINDOW)
         widenings += 1
 
-    grouped = group_by_document(hits)
+    grouped = group_by_document(hits, boosts)
+    # Refusal reads the RAW top similarity, never the boosted one - see boosted_score.
+    raw_top = max((h.similarity for h in hits), default=0.0)
     return SearchOutcome(
         results=to_results(grouped[:limit]),
+        raw_top_score=raw_top,
         chunks_examined=len(hits),
         documents_in_window=len(grouped),
         widenings=widenings,
@@ -141,7 +215,7 @@ async def search_documents(
     )
 
 
-def to_results(hits: list[ChunkHit]) -> list[DocumentResult]:
+def to_results(scored: list[tuple[ChunkHit, float]]) -> list[DocumentResult]:
     return [
         DocumentResult(
             rank=index,
@@ -149,7 +223,8 @@ def to_results(hits: list[ChunkHit]) -> list[DocumentResult]:
             title=hit.title,
             filename=hit.filename,
             source_type=hit.source_type,
-            score=round(hit.similarity, 4),
+            score=round(score, 4),
+            raw_score=round(hit.similarity, 4),
             # The stored chunk is already masked, so a result card cannot display an
             # identifier even when the source document contains one.
             snippet=hit.text[:SNIPPET_CHARS],
@@ -158,5 +233,5 @@ def to_results(hits: list[ChunkHit]) -> list[DocumentResult]:
             byte_size=hit.byte_size,
             has_thumbnail=hit.has_thumbnail,
         )
-        for index, hit in enumerate(hits, start=1)
+        for index, (hit, score) in enumerate(scored, start=1)
     ]

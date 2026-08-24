@@ -128,3 +128,49 @@ async def test_snippets_never_show_an_identifier(api, doubles):
     assert body["results"], "expected a match"
     assert all(number not in r["snippet"] for r in body["results"])
     assert "[AADHAAR_NUMBER]" in body["results"][0]["snippet"]
+
+
+async def test_stage_one_is_consulted_and_reported(api, doubles):
+    """The extracted filters come back in the response, so a result can be explained."""
+    doubles["stage_one"].filters = {"source_types": ["image"]}
+    await upload_image(api, doubles, "some text here", "a.png")
+
+    body = (await api.post("/search", json={"query": "the screenshot"})).json()
+
+    assert doubles["stage_one"].calls == ["the screenshot"]
+    assert body["filters"] == {"source_types": ["image"]}
+    assert body["stage1_ms"] is not None
+
+
+async def test_stage_one_can_be_switched_off_for_the_ablation(api, doubles):
+    await upload_image(api, doubles, "some text here", "a.png")
+
+    body = (await api.post("/search", json={"query": "x", "stage1": False})).json()
+
+    assert doubles["stage_one"].calls == []
+    assert body["stage1_ms"] is None
+
+
+async def test_a_matching_source_type_is_boosted_not_required(api, doubles):
+    """The mail.pdf case: a filter is evidence, not truth.
+
+    A document that mismatches the filter must still be reachable, because a scanned
+    email has source_type pdf while the query calls it "the mail".
+    """
+    doubles["stage_one"].filters = {"source_types": ["email"]}
+    await upload_pdf(api, ["the offer letter from human resources"], "scan.pdf")
+
+    body = (await api.post("/search", json={"query": "the offer letter"})).json()
+
+    assert body["results"], "a mismatching source type must not exclude the document"
+    assert body["results"][0]["filename"] == "scan.pdf"
+
+
+async def test_boosted_and_raw_scores_are_both_reported(api, doubles):
+    doubles["stage_one"].filters = {"source_types": ["image"]}
+    await upload_image(api, doubles, "dashboard with forms", "shot.png")
+
+    top = (await api.post("/search", json={"query": "dashboard"})).json()["results"][0]
+
+    assert top["score"] > top["raw_score"], "a matching source type should boost"
+    assert top["raw_score"] <= 1.0

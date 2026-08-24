@@ -1,11 +1,18 @@
-"""Layer one runs without an LLM. Enforced on the import graph.
+"""No document content in any prompt, at layer one. Enforced structurally.
 
-PRODUCT.md architectural rule 1 says finding a file never sends any part of it to a
-model. A behaviour test - "no generator was called" - passes right up until someone adds
-a summarise-the-results step, at which point the rule is gone and the suite is still
-green. Checking what the module can even reach catches that at the moment it is written.
+PRODUCT.md architectural rule 1 draws the line at **what goes into the prompt**, not at
+whether a model is called. Stage 1 sends the user's own query and is permitted. Anything
+carrying chunk text, filenames, snippets or results is forbidden, however much it might
+improve the ranking.
 
-Same instinct as require_masked: check the structure, not the symptom.
+Two checks, because the rule has two halves:
+
+- layer one must not import the generation module, which takes chunks by construction
+- the stage 1 prompt builder must accept a query string and nothing else, so there is no
+  parameter through which a document could arrive
+
+A behaviour test - "no generator was called" - passes right up until someone adds the
+forbidden step. Same instinct as require_masked: check the structure, not the symptom.
 """
 
 import ast
@@ -13,9 +20,16 @@ from pathlib import Path
 
 import pytest
 
-LAYER_ONE = ("memora/services/search.py", "memora/api/routers/search.py")
+LAYER_ONE = (
+    "memora/services/search.py",
+    "memora/api/routers/search.py",
+    "memora/services/query_understanding.py",
+)
 
-FORBIDDEN = ("generation", "google.genai", "genai")
+# The generation module takes chunks. Reaching it from layer one is the violation.
+# `google.genai` is NOT forbidden any more: stage 1 is a permitted model call, and
+# banning the SDK would ban the permitted half along with the forbidden one.
+FORBIDDEN = ("generation",)
 
 SRC = Path(__file__).resolve().parents[1] / "src"
 
@@ -59,3 +73,39 @@ def test_the_guard_would_catch_a_violation(tmp_path):
     imports = imported_names(offending)
 
     assert any(name.endswith(".generation") for name in imports)
+
+
+def test_stage_one_prompt_accepts_a_query_and_nothing_else():
+    """The signature is the enforcement.
+
+    build_prompt takes a query string. There is no parameter through which a chunk, a
+    filename, a snippet or a result could be passed, so the forbidden prompt cannot be
+    constructed without changing this signature - which fails this test.
+    """
+    import inspect
+
+    from memora.services.query_understanding import build_prompt
+
+    parameters = inspect.signature(build_prompt).parameters
+    assert list(parameters) == ["query", "today"]
+    assert parameters["query"].annotation == "str"
+
+
+def test_stage_one_prompt_contains_only_the_query():
+    from memora.services.query_understanding import build_prompt
+
+    prompt = build_prompt("the mail yash sent to rutuja")
+
+    assert "the mail yash sent to rutuja" in prompt
+    for leaked in ("chunk", "snippet", ".pdf", ".jpeg", "GOVERNMENT OF INDIA"):
+        assert leaked not in prompt
+
+
+def test_stage_one_does_not_import_retrieval_types():
+    """It cannot be handed a result even by accident."""
+    imports = imported_names(SRC / "memora/services/query_understanding.py")
+
+    for banned in ("memora.repositories.chunk", "memora.services.search"):
+        assert not any(name.startswith(banned) for name in imports), (
+            f"query_understanding imports {banned}; it must never see a retrieval result."
+        )

@@ -183,6 +183,11 @@
             "minLength": 1,
             "title": "Query",
             "type": "string"
+          },
+          "stage1": {
+            "default": true,
+            "title": "Stage1",
+            "type": "boolean"
           }
         },
         "required": [
@@ -205,6 +210,18 @@
             "title": "Documents In Window",
             "type": "integer"
           },
+          "filters": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filters"
+          },
           "reason": {
             "anyOf": [
               {
@@ -226,6 +243,17 @@
             },
             "title": "Results",
             "type": "array"
+          },
+          "stage1_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage1 Ms"
           },
           "total": {
             "title": "Total",
@@ -285,6 +313,10 @@
             "title": "Rank",
             "type": "integer"
           },
+          "raw_score": {
+            "title": "Raw Score",
+            "type": "number"
+          },
           "score": {
             "title": "Score",
             "type": "number"
@@ -320,6 +352,7 @@
           "filename",
           "source_type",
           "score",
+          "raw_score",
           "snippet",
           "matched_chunk_id",
           "page",

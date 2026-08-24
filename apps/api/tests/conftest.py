@@ -93,13 +93,14 @@ def blob_store(tmp_path):
 
 @pytest.fixture
 def doubles():
-    from support import FakeCounter, FakeEmbedder, FakeGenerator, FakeOcr
+    from support import FakeCounter, FakeEmbedder, FakeGenerator, FakeOcr, FakeStageOne
 
     return {
         "embedder": FakeEmbedder(),
         "counter": FakeCounter(),
         "generator": FakeGenerator(),
         "ocr": FakeOcr(),
+        "stage_one": FakeStageOne(),
     }
 
 
@@ -115,6 +116,10 @@ async def api(app, db, doubles, test_user_id, blob_store):
     app.dependency_overrides[files_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[chat_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[search_router.get_embedder] = lambda: doubles["embedder"]
+    # Stage 1 is a real API call otherwise - quota, latency and non-determinism.
+    app.dependency_overrides[search_router.get_query_understanding] = (
+        lambda: doubles["stage_one"]
+    )
     app.dependency_overrides[chat_router.get_generator] = lambda: doubles["generator"]
 
     async def _db():

@@ -125,13 +125,30 @@ carrying its best-matching chunk as evidence.
 These are properties of the product, not implementation preferences. A future change
 that violates one of them is a regression even if every test passes.
 
-**1. Layer one runs without an LLM.** `/search` ranks and returns documents with **no
-generation call**. Document content enters a model prompt only when the user explicitly
-asks a question about it in layer two.
+**1. No document content in any prompt, at layer one.**
+
+The boundary is **what goes into the prompt**, never what the call is for. A step cannot
+be justified by claiming it improves search; only by what it sends.
+
+**Permitted at layer one:** a model call whose entire input is the user's own query text.
+The user typed those words, deliberately, knowing they are being used to search. Sending
+"the mail yash sent to rutuja" is categorically different from sending that mail.
+
+**Forbidden at layer one:** any prompt containing retrieved chunk text, document content,
+titles, filenames, snippets, extracted metadata, or search results — whole or
+summarised, before ranking or after it. "Summarise the results", "rerank these snippets"
+and "pick the best of these documents" are all forbidden, however much they might improve
+the ranking.
 
 This is a privacy property, not a performance optimisation. It is what allows someone to
 find their Aadhaar card without any part of that card entering a third party's prompt.
-Do not add a generation step to `/search` to "improve" it.
+Query understanding (stage 1) sits inside the permitted half: it reads the question and
+returns filters, and never sees a document.
+
+Enforced structurally in `tests/test_no_llm_in_layer_one.py`: layer one must not import
+the generation module, and the query-understanding prompt builder must accept a query
+string and nothing else. A behaviour test would keep passing until the day someone adds
+the forbidden step.
 
 **2. Identifiers are masked before anything leaves the machine.** OCR of an identity
 document produces the identity number as plain text, and that text is then embedded —

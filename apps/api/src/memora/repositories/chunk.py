@@ -32,6 +32,8 @@ class ChunkHit:
     source_type: str
     byte_size: int
     has_thumbnail: bool
+    sender: str | None = None
+    occurred_at: object | None = None
 
 
 class ChunkRepository(BaseRepository[Chunk]):
@@ -71,6 +73,8 @@ class ChunkRepository(BaseRepository[Chunk]):
                 Memory.source_type,
                 Memory.byte_size,
                 Memory.has_thumbnail,
+                Memory.sender,
+                Chunk.occurred_at.label("chunk_at"),
             )
             .order_by(distance)
             .limit(k)
@@ -89,6 +93,8 @@ class ChunkRepository(BaseRepository[Chunk]):
                 source_type=source_type,
                 byte_size=byte_size,
                 has_thumbnail=has_thumbnail,
+                sender=sender,
+                occurred_at=chunk_at,
             )
             for (
                 chunk,
@@ -98,6 +104,8 @@ class ChunkRepository(BaseRepository[Chunk]):
                 source_type,
                 byte_size,
                 has_thumbnail,
+                sender,
+                chunk_at,
             ) in rows
         ]
 
