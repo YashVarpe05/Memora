@@ -102,6 +102,54 @@ A cold run still needs 21 calls against a 20/day limit, so the first population 
 cache has to span two days or use a second model deliberately and be discarded as a
 measurement.
 
+## What the ceiling means for the product, not just the eval
+
+**20 generate calls per day, per model. Stage 1 is one call per search. So the current
+design supports 20 user searches per day, in total, across all users.**
+
+That is not an evaluation inconvenience. It is the product's throughput.
+
+**Is it survivable for the defence demo?** Probably, narrowly. A demo is five to ten
+searches. But the failure mode is specific and worth naming: **rehearsing on the morning
+of the demo can exhaust the day's budget before the demo happens.** The quota is daily and
+per project, not per session. If it runs out mid-demo, stage 1 fails silently to
+passthrough and the system quietly reverts to the dense-only baseline — the calendar
+starts winning again, live, and nothing on screen says why.
+
+Options, with the numbers actually measured. Not a recommendation.
+
+**A — paid tier.** Removes the cap. Stage 1 prompts are small: a ~400-token system prompt
+plus a short query, so a full 21-query evaluation is on the order of ten thousand tokens.
+The volume is tiny; current per-token pricing needs checking rather than quoting from
+memory. Cost: money, and a card on file.
+
+**B — a cheaper model for stage 1 only. Measured, and strictly worse than not doing it.**
+`gemini-flash-lite-latest` produced Recall@1 0.789 against 0.947 for the pinned model —
+and 0.789 is *below* the 0.842 dense-only baseline. A weaker extractor produces wrong
+filters, and a wrong filter demotes the correct answer. This is not a trade-off with a
+cost; it is dominated. It also does not raise the ceiling much, because the quota is
+per-model: four models is 80 calls a day, which is a workaround rather than an
+architecture.
+
+**C — skip stage 1 when the query carries no filterable signal.** Measured on the cached
+extractions: **7 of 18 queries produced no usable filter at all** — 39% of calls wasted.
+Skipping those would raise the effective ceiling from 20 to roughly 33 searches a day. The
+catch is that you cannot know a query has no signal without asking, so it needs a local
+heuristic — source-type words, person names, date phrases — and a wrong prediction loses
+the filter for a query that needed one. Untested, and the cheapest thing on this list.
+
+**D — accept the cap.** 20 searches a day. Adequate for a demo, not for development, and
+not for anyone actually using it. Free.
+
+**E — a local model for stage 1.** Removes the quota entirely and strengthens the privacy
+claim, since the query would stop leaving the machine at all. But result B is the warning:
+a weaker extractor was worse than no extractor, and a small local model is likely weaker
+than `gemini-2.5-flash`. High risk on the evidence available.
+
+**The refusal implication.** If refusal needs a second generate call per query, the
+ceiling halves to **10 searches a day**. Any refusal design has to state its call cost
+before it is built, not after.
+
 ## Stage 1 latency
 
 - `gemini-2.5-flash`: 2.2 s – 3.0 s per query
