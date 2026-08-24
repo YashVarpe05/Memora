@@ -24,6 +24,7 @@ class MemoryRepository(BaseRepository[Memory]):
         byte_size: int = 0,
         mime_type: str = "",
         has_thumbnail: bool = False,
+        document_type: str | None = None,
         sender: str | None = None,
         occurred_at: object | None = None,
     ) -> Memory:
@@ -35,12 +36,25 @@ class MemoryRepository(BaseRepository[Memory]):
             byte_size=byte_size,
             mime_type=mime_type,
             has_thumbnail=has_thumbnail,
+            document_type=document_type,
             sender=sender,
             occurred_at=occurred_at,
         )
         self.add(memory)
         await self.session.flush()
         return memory
+
+    async def document_types(self) -> set[str | None]:
+        """Which document types this user actually holds.
+
+        Scoped, like everything here. A global query would let one user's corpus decide
+        whether another user's search is refused - which leaks the existence of a
+        document without ever showing it.
+        """
+        result = await self.session.execute(
+            self.scoped().with_only_columns(Memory.document_type).distinct()
+        )
+        return set(result.scalars().all())
 
     async def find_by_hash(self, content_hash: str) -> Memory | None:
         """Deduplication lookup, scoped to this owner.

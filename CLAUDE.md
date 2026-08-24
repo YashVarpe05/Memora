@@ -48,11 +48,20 @@ docs/           PRODUCT.md, ROADMAP.md, GOLD.jsonl, SCHEMA.md, RAG.md, PORTABILI
 ## Commands that prove a change
 ```bash
 cd apps/api && uv run pytest && uv run ruff check .
-cd apps/web && pnpm test && pnpm build
+cd apps/web && pnpm typecheck && pnpm build
 alembic upgrade head
 python -m memora.eval.retrieval               # gold-set gate
 pnpm gen:types                                # OpenAPI -> packages/core/src/types
 ```
+
+`pnpm test` was listed here and **never ran** - apps/web has no test script, so the gate
+silently passed nothing for the whole project. `pnpm typecheck` is what actually exists
+and actually runs. For a real web test gate three things would have to be added, in this
+order: a runner (vitest + jsdom in apps/web devDependencies), a `"test"` script, and a
+first test worth running - the highest-value one being that DegradedBanner renders when
+`/health/ready` reports a degraded stage 1, since that path was shipped unrenderable once
+already. Not built, because it was not asked for. Listed so the gap is a decision rather
+than an oversight.
 
 ## Retrieval rules (most important section)
 - Retrieval is TWO stages. Stage 1: LLM converts the question into filters + semantic_query

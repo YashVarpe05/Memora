@@ -9,10 +9,11 @@ skip things it should run.
 """
 
 import pytest
-from support import FakeStageOne, make_png
 
 from memora.api.routers import search as search_router
 from memora.services.query_signal import has_filterable_signal, why
+
+from support import FakeStageOne, make_png
 
 RUN = [
     pytest.param("that motivation photo with the quote", "source type", id="photo"),

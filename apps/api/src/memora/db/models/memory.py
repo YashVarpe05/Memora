@@ -33,6 +33,11 @@ class Memory(Base):
     mime_type: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     has_thumbnail: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # What kind of document this is - aadhaar, receipt, marksheet. Null is normal and
+    # means "no recognised type". Refusal compares this against what stage 1 was asked
+    # for; see services/document_type.py for why that is not a similarity threshold.
+    document_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
     # Named in the stage 1 filter contract, so it will be filtered on.
     sender: Mapped[str | None] = mapped_column(String(320), nullable=True)
     occurred_at: Mapped[datetime | None] = mapped_column(

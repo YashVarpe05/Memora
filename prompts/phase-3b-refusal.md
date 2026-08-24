@@ -1,6 +1,45 @@
 # Phase 3b — refusal via document-type agreement
 
-**Status: plan only. Nothing implemented pending approval.**
+**Status: approved. Blocked on a measurement, not on approval — see sequencing.**
+
+## Sequencing — this phase cannot start until PHASE3C is measured
+
+Adding `document_type` to stage 1's JSON schema **changes the system prompt, which
+invalidates every cache entry.** That is the cache working as designed, and it has a
+consequence for ordering that is easy to miss:
+
+- PHASE3C must be measured against the **current** prompt, or its Recall@1 is not
+  comparable to the 0.947 in `PHASE3.md`.
+- So the prompt must not change until `docs/PHASE3C.md` exists.
+- PHASE3C costs 13 generate calls; a cold run after the prompt change costs 13 more.
+  **26 against a 20/day ceiling — the two measurements cannot share a day.**
+
+Order: measure PHASE3C → decide the skip → change the prompt → measure PHASE3B the
+following day.
+
+**What can be built before the prompt changes:** the vocabulary, ingest-time labelling,
+the agreement check, and the migration. None of those touch stage 1. That is also the
+riskier half of the design — a wrong label is as harmful as a wrong filter — so building
+it first is not just schedule-filling.
+
+**Built 2026-08-25, before the prompt change:** `services/document_type.py`, migration
+0004, `MemoryRepository.document_types()`, ingest labelling, 17 tests. The stage 1 prompt
+is untouched, so PHASE3C still measures the prompt PHASE3 measured.
+
+Two things the build settled that the plan had left open:
+
+- **`classify()` reads only the head of a document** (first five blocks, 1500 chars). The
+  calendar is 353 of 377 chunks and mentions "receipt" and "certificate" somewhere inside
+  it. Reading the whole file would type the calendar as a receipt, and then every receipt
+  query would match it instead of refusing — the calendar attractor defeating refusal the
+  same way it defeats retrieval.
+- **`document_types()` is scoped to the owner.** Whether another user holds a receipt must
+  not decide whether this user is refused: a global lookup leaks the existence of someone
+  else's document through refusal behaviour, without ever showing the file.
+
+**A dependency the plan did not have:** a cold refusal run costs 13 generate calls *only
+because the skip exists*. If PHASE3C says revert the skip, refusal measurement goes back to
+21 calls and no longer fits in a day. The two phases are coupled through the budget.
 
 ## Goal
 
@@ -107,6 +146,21 @@ services/retrieval.py                  refusal takes type agreement, not just a 
 api/routers/search.py                  report the refusal reason
 eval/baseline.py                       report false refusals separately from misses
 ```
+
+## Where the refusal has to be visible
+
+A refusal is a result the user has to be able to read, in the place the search happened.
+`api/routers/search.py` reports the reason, and the UI has to render it — the same lesson
+the phase-3 guard produced twice over.
+
+**The degraded banner currently lives in the chat view and polls `/health/ready` every
+30 s.** That is right for now, because the chat view is the only screen there is. It
+belongs on the **search screen** once one exists: the degradation harms search results, so
+the warning has to appear where the harm lands, not on an adjacent page the user may never
+open. The same applies to a refusal — it is a property of a search, not of the app.
+
+Carry this forward when the search UI is built. Until then the banner is correctly placed
+and incorrectly located, which is worth stating rather than forgetting.
 
 ## Acceptance criteria
 

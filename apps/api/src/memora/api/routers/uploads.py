@@ -17,6 +17,7 @@ from memora.services.chunking import (
     chunk_blocks,
     chunk_per_block,
 )
+from memora.services.document_type import classify
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.extraction import (
     Extracted,
@@ -186,6 +187,16 @@ async def upload_document(
     if thumbnail:
         blobs.put_thumbnail(user_id, stored.content_hash, thumbnail)
 
+    # Labelled from the filename and the head of the extracted text. Rule-based and
+    # offline: a classifier here would be a second extractor, and PHASE3.md measured
+    # what a weak extractor costs.
+    document_type = classify(
+        filename=filename,
+        # The head only. A receipt says so at the top; a calendar that mentions the
+        # word once, three hundred events down, is not a receipt.
+        text=" ".join(b.text for b in extracted.blocks[:5]),
+    )
+
     memory = await memories.create(
         source_type=source_type,
         title=title,
@@ -195,6 +206,7 @@ async def upload_document(
         byte_size=stored.byte_size,
         mime_type=mime,
         has_thumbnail=thumbnail is not None,
+        document_type=document_type,
         sender=extracted.sender,
         occurred_at=extracted.occurred_at,
     )
