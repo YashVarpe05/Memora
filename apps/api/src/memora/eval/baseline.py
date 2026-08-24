@@ -4,11 +4,21 @@ Run this BEFORE query understanding exists. An ablation table needs a number tak
 before the improvement, not reconstructed after it, and a baseline re-run later against
 a pipeline that has quietly changed is not a baseline.
 
-It ingests the corpus under a fresh owner, runs every gold query through /search, and
-computes Recall@1, Recall@5, MRR@10 and refusal accuracy, with a per-type breakdown and
-the observed fetch-window behaviour.
+It runs every gold query through /search and computes Recall@1, Recall@5, MRR@10 and
+refusal accuracy, with a per-type breakdown and the observed fetch-window behaviour.
 
-    uv run python -m memora.eval.baseline --out docs/BASELINE.md
+    uv run python -m memora.eval.baseline --ingest    # once: ~400 embeds
+    uv run python -m memora.eval.baseline             # thereafter: 21 embeds
+
+Ingest and evaluation are separate on purpose. One full ingest is roughly 400 embed
+requests against a 1000-per-day free tier, so re-ingesting every run allows two
+measurements a day - and phase 3 has to sweep a threshold and a filter extractor against
+this gold set far more often than that. Evaluating an already-indexed corpus costs one
+embedding per query.
+
+The corpus is verified by content hash before every run, so a stale index fails loudly
+instead of producing a number that looks fine and describes a corpus that no longer
+exists.
 """
 
 from __future__ import annotations
@@ -26,6 +36,11 @@ from memora.eval.retrieval import GoldRow, load
 from memora.paths import anchored, resolve
 
 MRR_DEPTH = 10
+
+# A stable owner, so an ingest survives between runs. A fresh UUID per run would make
+# every measurement pay the full ingest cost, which is the thing this file exists to
+# avoid. Distinct from the dev identity, so a manual upload cannot contaminate a result.
+EVAL_USER_ID = uuid.UUID("00000000-0000-4000-8000-0000000e7a10")
 
 
 @dataclass
@@ -97,6 +112,70 @@ class Metrics:
         }
 
 
+async def ingested_documents(owner: uuid.UUID) -> dict[str, str]:
+    """content_hash -> filename, for everything already indexed under this owner."""
+    from sqlalchemy import select
+
+    from memora.db.models.memory import Memory
+    from memora.db.session import scoped_session
+
+    async for session in scoped_session(owner):
+        rows = await session.execute(select(Memory.content_hash, Memory.filename))
+        return {content_hash: filename for content_hash, filename in rows}
+    return {}
+
+
+async def chunk_count(owner: uuid.UUID) -> int:
+    from sqlalchemy import func, select
+
+    from memora.db.models.chunk import Chunk
+    from memora.db.session import scoped_session
+
+    async for session in scoped_session(owner):
+        result = await session.execute(select(func.count()).select_from(Chunk))
+        return int(result.scalar_one())
+    return 0
+
+
+def corpus_hashes(corpus: Path) -> dict[str, str]:
+    """content_hash -> filename, for every file on disk."""
+    from memora.services.storage import sha256_of
+
+    return {
+        sha256_of(path.read_bytes()): path.name
+        for path in sorted(corpus.rglob("*"))
+        if path.is_file() and not path.name.startswith(".")
+    }
+
+
+def verify_corpus(
+    on_disk: dict[str, str], indexed: dict[str, str], rows: list[GoldRow]
+) -> list[str]:
+    """Problems that would make a measurement misleading rather than merely incomplete.
+
+    Two things matter. A document in the index that is no longer on disk means the
+    measurement describes a corpus that does not exist. And a gold row whose expected
+    file was never indexed cannot possibly be found, so its failure would be charged to
+    retrieval when the cause is a missing document.
+
+    A file on disk that was never indexed is NOT an error: several corpus files are
+    rejected at upload for containing no extractable text, which is expected and is
+    itself a recorded finding.
+    """
+    problems: list[str] = []
+
+    for content_hash, filename in sorted(indexed.items(), key=lambda kv: kv[1]):
+        if content_hash not in on_disk:
+            problems.append(f"indexed but no longer on disk (or changed): {filename}")
+
+    indexed_names = set(indexed.values())
+    expected = {name for row in rows for name in row.expected_sources}
+    for name in sorted(expected - indexed_names):
+        problems.append(f"gold set expects '{name}', which is not indexed")
+
+    return problems
+
+
 async def ingest(client, corpus: Path) -> tuple[int, int, list[str]]:
     """Upload every corpus file. Returns (documents, chunks, rejected)."""
     documents = chunks = 0
@@ -165,7 +244,12 @@ def render(metrics: Metrics, meta: dict) -> str:
         f"({len(metrics.retrieval_rows)} retrieval, {len(metrics.refusal_rows)} refusal)",
         "- Retrieval: plain dense cosine over `gemini-embedding-001` at 768 dims. "
         "No query understanding, no BM25, no reranking.",
-        f"- Ingest took {meta['ingest_seconds']}s, almost all of it free-tier rate limiting.",
+        (
+            f"- Ingest took {meta['ingest_seconds']}s, almost all of it free-tier "
+            "rate limiting."
+            if meta["ingest_seconds"]
+            else "- Evaluated against an already-indexed corpus, verified by content hash."
+        ),
         "",
         "## Headline",
         "",
@@ -277,7 +361,7 @@ def render(metrics: Metrics, meta: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-async def run(gold_path: Path, corpus: Path, out: Path) -> int:
+async def run(gold_path: Path, corpus: Path, out: Path, do_ingest: bool) -> int:
     from httpx import ASGITransport, AsyncClient
 
     from memora.main import create_app
@@ -292,23 +376,44 @@ async def run(gold_path: Path, corpus: Path, out: Path) -> int:
     started = time.perf_counter()
     app = create_app()
 
-    # A fresh owner each run, so a previous measurement cannot contaminate this one.
     from memora.api.deps import current_user_id
 
-    owner = uuid.uuid4()
+    owner = EVAL_USER_ID
     app.dependency_overrides[current_user_id] = lambda: owner
+
+    documents = chunks = elapsed = 0
 
     async with AsyncClient(
         transport=ASGITransport(app=app), base_url="http://baseline", timeout=3600
     ) as client:
-        print(f"  ingesting {corpus} as {owner}...")
-        documents, chunks, rejected = await ingest(client, corpus)
-        elapsed = int(time.perf_counter() - started)
-        print(f"  {documents} documents, {chunks} chunks in {elapsed}s")
-        for name in rejected:
-            print(f"    rejected: {name}")
+        if do_ingest:
+            print(f"  ingesting {corpus} (~400 embeds against a 1000/day tier)...")
+            documents, chunks, rejected = await ingest(client, corpus)
+            elapsed = int(time.perf_counter() - started)
+            print(f"  {documents} documents, {chunks} chunks in {elapsed}s")
+            for name in rejected:
+                print(f"    rejected: {name}")
 
-        print(f"  running {len(rows)} queries...")
+        indexed = await ingested_documents(owner)
+        if not indexed:
+            print("\n  Nothing is indexed for the eval owner. Run once with --ingest.\n")
+            return 1
+
+        problems = verify_corpus(corpus_hashes(corpus), indexed, rows)
+        if problems:
+            print("\n  The indexed corpus does not match the gold set or the disk:")
+            for problem in problems:
+                print(f"    x {problem}")
+            print("\n  Re-run with --ingest, or fix the gold set. Refusing to report a")
+            print("  number that describes a corpus which is no longer there.\n")
+            return 1
+
+        if not do_ingest:
+            documents = len(indexed)
+            chunks = await chunk_count(owner)
+            print(f"  reusing indexed corpus: {documents} documents, {chunks} chunks")
+
+        print(f"  running {len(rows)} queries ({len(rows)} embeds)...")
         metrics = await measure(client, rows)
 
     meta = {
@@ -345,6 +450,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gold", type=Path, default=None)
     parser.add_argument("--corpus", type=Path, default=None)
     parser.add_argument("--out", type=Path, default=None)
+    parser.add_argument(
+        "--ingest",
+        action="store_true",
+        help=(
+            "re-ingest the corpus first. Costs roughly 400 embeds against a 1000/day "
+            "tier; omit it to evaluate the corpus already indexed."
+        ),
+    )
     args = parser.parse_args(argv)
 
     gold = resolve(args.gold) if args.gold else anchored("docs/GOLD.jsonl")
@@ -355,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: gold set not found at {gold}")
         return 2
 
-    return asyncio.run(run(gold, corpus, out))
+    return asyncio.run(run(gold, corpus, out, do_ingest=args.ingest))
 
 
 if __name__ == "__main__":
