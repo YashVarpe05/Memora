@@ -244,6 +244,22 @@
             "title": "Results",
             "type": "array"
           },
+          "stage1_failed": {
+            "default": false,
+            "title": "Stage1 Failed",
+            "type": "boolean"
+          },
+          "stage1_failure_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage1 Failure Reason"
+          },
           "stage1_ms": {
             "anyOf": [
               {

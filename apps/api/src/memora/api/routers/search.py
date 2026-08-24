@@ -73,6 +73,10 @@ class SearchResponse(BaseModel):
     # What stage 1 extracted, so a result can be explained rather than trusted.
     filters: dict | None = None
     stage1_ms: int | None = None
+    # True when stage 1 was asked and could not answer. Reported rather than
+    # swallowed: a total outage otherwise looks exactly like having no opinion.
+    stage1_failed: bool = False
+    stage1_failure_reason: str | None = None
 
 
 def get_embedder() -> Embedder:
@@ -102,9 +106,20 @@ async def search(
         filters = await stage_one.extract(payload.query)
         stage1_ms = int((time.perf_counter() - started) * 1000)
 
-    # Masked like every other embedding: a description typed into the search box can
+    # The USER'S query is embedded, not stage 1's rewrite.
+    #
+    # Measured 2026-08-24 on q007. Stage 1 rewrote "the screenshot of that dashboard
+    # with the forms on it" to "dashboard with the forms", dropping the word carrying
+    # the match. The target fell from rank 2 (raw 0.547) to rank 4 (raw 0.509) - a
+    # bigger loss than the +0.08 source-type boost could recover, so a correct filter
+    # still produced a worse result.
+    #
+    # Stage 1 is trusted for filters and not for rewriting. semantic_query is still
+    # returned in the response, because seeing what it would have done is useful.
+    #
+    # Masked like every other embedding: a description typed into a search box can
     # itself contain an identifier.
-    query_vector = (await embedder.embed([mask_identifiers(filters.semantic_query)]))[0]
+    query_vector = (await embedder.embed([mask_identifiers(payload.query)]))[0]
 
     boosts = Boosts(
         source_types=filters.source_types,
@@ -133,6 +148,8 @@ async def search(
             corpus_exhausted=outcome.exhausted,
             filters=filters.raw or None,
             stage1_ms=stage1_ms,
+            stage1_failed=payload.stage1 and filters.failed,
+            stage1_failure_reason=filters.failure_reason if filters.failed else None,
         )
 
     return SearchResponse(
@@ -144,6 +161,8 @@ async def search(
         corpus_exhausted=outcome.exhausted,
         filters=filters.raw or None,
         stage1_ms=stage1_ms,
+        stage1_failed=payload.stage1 and filters.failed,
+        stage1_failure_reason=filters.failure_reason if filters.failed else None,
         results=[
             SearchResult(
                 rank=r.rank,

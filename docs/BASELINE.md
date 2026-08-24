@@ -1,6 +1,6 @@
 # Baseline — dense-only retrieval
 
-Recorded 2026-08-23T18:38:27+00:00, commit `e734645`.
+Recorded 2026-08-24T19:28:27+00:00, commit `ad5364e`.
 
 **This is the number query understanding has to beat.** Taken before any of it
 exists, so the comparison later is a measurement rather than a reconstruction.
@@ -10,7 +10,7 @@ exists, so the comparison later is a measurement rather than a reconstruction.
 - Corpus: 11 documents, 377 chunks
 - Gold set: 21 queries (19 retrieval, 2 refusal)
 - Retrieval: plain dense cosine over `gemini-embedding-001` at 768 dims. No query understanding, no BM25, no reranking.
-- Ingest took 247s, almost all of it free-tier rate limiting.
+- Evaluated against an already-indexed corpus, verified by content hash.
 
 ## Headline
 
@@ -61,25 +61,49 @@ exists, so the comparison later is a measurement rather than a reconstruction.
 
 ## Where the failures went
 
-Every failed query has the same file at rank 1.
+Most frequent top result:
 
 | file | times ranked first |
 |---|---|
-| `yashvarpe2005@gmail.com.ics` | 8 of 21 |
+| `yashvarpe2005@gmail.com.ics` | 9 |
+| `WhatsApp Image 2026-07-03 at 01.24.47 (1).jpeg` | 3 |
+| `WhatsApp Image 2026-07-03 at 01.24.48.jpeg` | 2 |
+| `1773316539_ZnyZH84E.jpeg` | 1 |
+| `AgentOS_Synopsis.pdf` | 1 |
 
-The calendar is 353 of 377 chunks — **94% of the corpus**. A document that large contains
-something marginally similar to almost any query, so under dense-only ranking it becomes
-an attractor: it wins q006 ("the mail yash sent to rutuja"), q007 ("the screenshot of that
-dashboard"), and both refusal rows.
+`yashvarpe2005@gmail.com.ics` is the top result for 9 of 21 queries (43%).
 
-**This is the single clearest argument in this table for query understanding.** Stage 1
-constrains by source type and date *before* searching, and an attractor stops competing
-for queries it has no business answering. "The mail yash sent" filters to `source_type:
-email`; "the screenshot" filters to `source_type: image`. Neither needs better embeddings.
+**That is the headline failure mode.** A document large enough to contain something marginally similar to any query becomes an attractor under dense-only ranking, and every failed query above has it at rank 1. This is the case for stage-1 filtering: constrain by source type and date *before* searching, and the attractor stops competing for queries it has no business answering. It is the single clearest argument in this table for query understanding.
 
-Note this was appended by hand from the recorded run's own data. The renderer now computes
-it, but the free-tier daily quota (1000 embed requests; one full ingest is ~400) was
-exhausted before a regenerating run could complete.
+## Top-score distribution
+
+The data a refusal threshold has to be calibrated against. Rows that should
+refuse must fall below rows that should not; where they overlap, no single
+threshold separates them.
+
+| score | id | type |
+|---|---|---|
+| 0.538 | q020 | `must_refuse` |
+| 0.554 | q019 | `visual_recall` |
+| 0.579 | q007 | `visual_recall` |
+| 0.599 | q017 | `metadata_only` |
+| 0.603 | q016 | `temporal_resolution` |
+| 0.606 | q001 | `visual_recall` |
+| 0.619 | q010 | `disambiguation` |
+| 0.622 | q009 | `entity_resolution` |
+| 0.638 | q003 | `disambiguation` |
+| 0.645 | q004 | `disambiguation` |
+| 0.647 | q021 | `must_refuse` |
+| 0.651 | q013 | `entity_resolution` |
+| 0.670 | q008 | `metadata_only` |
+| 0.679 | q006 | `entity_resolution` |
+| 0.685 | q018 | `metadata_only` |
+| 0.688 | q011 | `disambiguation` |
+| 0.704 | q015 | `temporal_resolution` |
+| 0.716 | q012 | `entity_resolution` |
+| 0.721 | q002 | `content_semantic` |
+| 0.764 | q014 | `temporal_resolution` |
+| 0.775 | q005 | `content_semantic` |
 
 ## Observed fetch-window behaviour
 
@@ -101,6 +125,5 @@ is a document-level pre-filter rather than a larger window.
 - **No visual understanding.** OCR extracts text; it does not describe pictures. Three corpus files contain no text and are therefore unfindable by any query.
 - **`document_identity` is unmeasured.** The corpus contains no photograph of an ID card, so the flagship query type has no gold row. This is the largest gap.
 - **Refusal is not enforced by the system.** `MIN_SIMILARITY_UNCALIBRATED` is 0.35 and gibberish scores ~0.489, so the threshold never fires. Any refusal recorded here came from the corpus being genuinely empty of matches, not from the guard.
-- **Free-tier quota bounds how often this can be re-measured.** 1000 embed requests per day, and one full corpus ingest is roughly 400 — about two runs a day.
 - **Tesseract is the only working OCR engine.** PaddleOCR installs and cannot run on this hardware, in the container as well as on Windows.
 

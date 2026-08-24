@@ -52,6 +52,8 @@ class QueryOutcome:
     top_score: float | None
     chunks_examined: int
     widenings: int
+    stage1_ms: int | None = None
+    stage1_failed: bool = False
 
     @property
     def is_refusal_row(self) -> bool:
@@ -161,6 +163,13 @@ def verify_corpus(
     A file on disk that was never indexed is NOT an error: several corpus files are
     rejected at upload for containing no extractable text, which is expected and is
     itself a recorded finding.
+
+    That last case includes gold rows. q019 expects DSC02946.JPG, which is on disk and
+    rejected at upload because it has no text - it is a deliberate control that must fail.
+    The first version of this check treated it as drift and refused to report anything,
+    which would have blocked every measurement for as long as the control existed. The
+    distinction that matters is whether the file is *on disk*: present but unindexed
+    means it was offered and rejected; absent means the gold set is wrong.
     """
     problems: list[str] = []
 
@@ -169,11 +178,31 @@ def verify_corpus(
             problems.append(f"indexed but no longer on disk (or changed): {filename}")
 
     indexed_names = set(indexed.values())
+    on_disk_names = set(on_disk.values())
     expected = {name for row in rows for name in row.expected_sources}
     for name in sorted(expected - indexed_names):
-        problems.append(f"gold set expects '{name}', which is not indexed")
+        if name not in on_disk_names:
+            problems.append(f"gold set expects '{name}', which is not on disk at all")
 
     return problems
+
+
+def unindexable_expectations(
+    on_disk: dict[str, str], indexed: dict[str, str], rows: list[GoldRow]
+) -> list[str]:
+    """Gold rows whose file is present but was rejected at ingest.
+
+    Not errors - they are recorded so the report attributes their failure to a document
+    that could not be indexed rather than to retrieval.
+    """
+    indexed_names = set(indexed.values())
+    on_disk_names = set(on_disk.values())
+    return sorted(
+        f"{row.id} expects '{name}', which is on disk but was rejected at ingest"
+        for row in rows
+        for name in row.expected_sources
+        if name in on_disk_names and name not in indexed_names
+    )
 
 
 async def ingest(client, corpus: Path) -> tuple[int, int, list[str]]:
@@ -198,10 +227,13 @@ async def ingest(client, corpus: Path) -> tuple[int, int, list[str]]:
     return documents, chunks, rejected
 
 
-async def measure(client, rows: list[GoldRow]) -> Metrics:
+async def measure(client, rows: list[GoldRow], stage1: bool = True) -> Metrics:
     metrics = Metrics()
     for row in rows:
-        response = await client.post("/search", json={"query": row.query, "limit": MRR_DEPTH})
+        response = await client.post(
+            "/search",
+            json={"query": row.query, "limit": MRR_DEPTH, "stage1": stage1},
+        )
         body = response.json()
         results = body.get("results", [])
         names = [r["filename"] for r in results]
@@ -218,9 +250,14 @@ async def measure(client, rows: list[GoldRow]) -> Metrics:
                 rank=rank,
                 refused=bool(body.get("refused")),
                 top_filename=names[0] if names else None,
-                top_score=results[0]["score"] if results else None,
+                # RAW, not boosted: refusal is decided on the raw similarity, so a
+                # calibration against boosted scores would be calibrating the wrong
+                # number.
+                top_score=results[0]["raw_score"] if results else None,
                 chunks_examined=body.get("chunks_examined", 0),
                 widenings=body.get("widenings", 0),
+                stage1_ms=body.get("stage1_ms"),
+                stage1_failed=bool(body.get("stage1_failed")),
             )
         )
     return metrics
@@ -325,6 +362,37 @@ def render(metrics: Metrics, meta: dict) -> str:
                 "understanding.",
             ]
 
+    latencies = [o.stage1_ms for o in metrics.outcomes if o.stage1_ms is not None]
+    if latencies:
+        latencies.sort()
+        lines += [
+            "",
+            "## Stage 1 cost",
+            "",
+            "An extra model call on every search. Measured across these queries:",
+            "",
+            f"- median {latencies[len(latencies) // 2]} ms, "
+            f"range {latencies[0]}-{latencies[-1]} ms",
+            "- added to every search, before any retrieval happens",
+        ]
+
+    scores = sorted(
+        (o.top_score, o.row.id, o.row.type) for o in metrics.outcomes if o.top_score
+    )
+    if scores:
+        lines += [
+            "",
+            "## Top-score distribution",
+            "",
+            "Raw top similarity per query - the number refusal is decided on. Rows that",
+            "should refuse must fall below rows that should not; where they interleave,",
+            "no single threshold separates them and refusal needs a different signal.",
+            "",
+            "| score | id | type |",
+            "|---|---|---|",
+        ]
+        lines += [f"| {s:.3f} | {i} | `{t}` |" for s, i, t in scores]
+
     examined = [o.chunks_examined for o in metrics.outcomes]
     widenings = [o.widenings for o in metrics.outcomes]
     lines += [
@@ -361,7 +429,9 @@ def render(metrics: Metrics, meta: dict) -> str:
     return "\n".join(lines) + "\n"
 
 
-async def run(gold_path: Path, corpus: Path, out: Path, do_ingest: bool) -> int:
+async def run(
+    gold_path: Path, corpus: Path, out: Path, do_ingest: bool, stage1: bool = True
+) -> int:
     from httpx import ASGITransport, AsyncClient
 
     from memora.main import create_app
@@ -399,7 +469,10 @@ async def run(gold_path: Path, corpus: Path, out: Path, do_ingest: bool) -> int:
             print("\n  Nothing is indexed for the eval owner. Run once with --ingest.\n")
             return 1
 
-        problems = verify_corpus(corpus_hashes(corpus), indexed, rows)
+        on_disk = corpus_hashes(corpus)
+        problems = verify_corpus(on_disk, indexed, rows)
+        for note in unindexable_expectations(on_disk, indexed, rows):
+            print(f"    note: {note}")
         if problems:
             print("\n  The indexed corpus does not match the gold set or the disk:")
             for problem in problems:
@@ -413,8 +486,24 @@ async def run(gold_path: Path, corpus: Path, out: Path, do_ingest: bool) -> int:
             chunks = await chunk_count(owner)
             print(f"  reusing indexed corpus: {documents} documents, {chunks} chunks")
 
-        print(f"  running {len(rows)} queries ({len(rows)} embeds)...")
-        metrics = await measure(client, rows)
+        print(f"  running {len(rows)} queries ({len(rows)} embeds), stage1={stage1}...")
+        metrics = await measure(client, rows, stage1=stage1)
+
+        # A stage 1 that failed on every query produces exactly the dense-only
+        # numbers. Reporting that as a stage 1 measurement is how a quota outage
+        # gets written down as a finding, which happened once already.
+        failures = [o for o in metrics.outcomes if o.stage1_failed]
+        if stage1 and failures:
+            total = len(metrics.outcomes)
+            print()
+            print(f"  stage 1 failed on {len(failures)}/{total} queries.")
+            print(f"    e.g. {sorted(o.row.id for o in failures)[:3]}")
+            if len(failures) == total:
+                print()
+                print("  Every stage 1 call failed, so this run IS the dense-only path")
+                print("  wearing a stage 1 label. Refusing to write it.")
+                print()
+                return 1
 
     meta = {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -458,6 +547,11 @@ def main(argv: list[str] | None = None) -> int:
             "tier; omit it to evaluate the corpus already indexed."
         ),
     )
+    parser.add_argument(
+        "--no-stage1",
+        action="store_true",
+        help="run the dense-only path, for the ablation arm",
+    )
     args = parser.parse_args(argv)
 
     gold = resolve(args.gold) if args.gold else anchored("docs/GOLD.jsonl")
@@ -468,7 +562,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: gold set not found at {gold}")
         return 2
 
-    return asyncio.run(run(gold, corpus, out, do_ingest=args.ingest))
+    return asyncio.run(
+        run(gold, corpus, out, do_ingest=args.ingest, stage1=not args.no_stage1)
+    )
 
 
 if __name__ == "__main__":

@@ -6,7 +6,7 @@ index produces a plausible number for the wrong corpus - which is worse than an 
 because nobody checks a green result.
 """
 
-from memora.eval.baseline import corpus_hashes, verify_corpus
+from memora.eval.baseline import corpus_hashes, unindexable_expectations, verify_corpus
 from memora.eval.retrieval import GoldRow
 
 from support import make_pdf
@@ -54,20 +54,33 @@ def test_an_edited_file_is_reported_because_its_hash_changed():
     assert any("one.pdf" in p for p in problems)
 
 
-def test_a_gold_row_whose_file_is_not_indexed_is_reported():
-    """Otherwise the row fails and the failure is charged to retrieval.
-
-    The cause would be a missing document, and the number would be wrong in the
-    direction that makes the system look worse than it is.
-    """
-    on_disk = {"aaa": "one.pdf", "bbb": "two.pdf"}
+def test_a_gold_row_whose_file_is_missing_from_disk_is_reported():
+    on_disk = {"aaa": "one.pdf"}
     indexed = {"aaa": "one.pdf"}
 
-    problems = verify_corpus(on_disk, indexed, [row("one.pdf"), row("two.pdf")])
+    problems = verify_corpus(on_disk, indexed, [row("one.pdf"), row("gone.pdf")])
 
     assert len(problems) == 1
-    assert "two.pdf" in problems[0]
-    assert "not indexed" in problems[0]
+    assert "gone.pdf" in problems[0]
+    assert "not on disk" in problems[0]
+
+
+def test_a_gold_row_whose_file_was_rejected_at_ingest_is_a_note_not_an_error():
+    """q019 is exactly this: a control whose file has no extractable text.
+
+    The first version failed the run here, which would have blocked every measurement
+    for as long as the control existed.
+    """
+    on_disk = {"aaa": "one.pdf", "bbb": "blank.png"}
+    indexed = {"aaa": "one.pdf"}
+    rows = [row("one.pdf"), row("blank.png")]
+
+    assert verify_corpus(on_disk, indexed, rows) == []
+
+    notes = unindexable_expectations(on_disk, indexed, rows)
+    assert len(notes) == 1
+    assert "blank.png" in notes[0]
+    assert "rejected at ingest" in notes[0]
 
 
 def test_refusal_rows_expect_no_file_and_never_trigger_a_problem():

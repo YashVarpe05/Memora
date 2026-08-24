@@ -63,6 +63,7 @@ class QueryFilters:
     before: datetime | None = None
     needs_time_resolution: str | None = None
     failed: bool = False
+    failure_reason: str | None = None
     raw: dict = field(default_factory=dict, repr=False)
 
     @property
@@ -70,9 +71,9 @@ class QueryFilters:
         return not (self.source_types or self.sender or self.after or self.before)
 
 
-def passthrough(query: str) -> QueryFilters:
+def passthrough(query: str, reason: str = "not run") -> QueryFilters:
     """No constraints. The fallback whenever stage 1 cannot be trusted."""
-    return QueryFilters(semantic_query=query, failed=True)
+    return QueryFilters(semantic_query=query, failed=True, failure_reason=reason)
 
 
 class QueryUnderstanding(Protocol):
@@ -112,9 +113,9 @@ def parse_response(text: str, query: str) -> QueryFilters:
     try:
         data = json.loads(body)
     except (ValueError, TypeError):
-        return passthrough(query)
+        return passthrough(query, reason="unparseable JSON")
     if not isinstance(data, dict):
-        return passthrough(query)
+        return passthrough(query, reason="reply was not an object")
 
     semantic = data.get("semantic_query")
     sender = data.get("sender")
@@ -169,8 +170,12 @@ class GeminiQueryUnderstanding:
                     temperature=0.0,
                 ),
             )
-        except Exception:  # noqa: BLE001 - stage 1 must never fail a search
-            return passthrough(query)
+        except Exception as exc:  # noqa: BLE001 - stage 1 must never fail a search
+            # Degrading is right; degrading SILENTLY is not. A quota exhaustion made
+            # every call fall back, and the run reported dense-only numbers as a stage 1
+            # measurement - indistinguishable from stage 1 simply having no opinion.
+            # The reason travels with the result so a caller can tell the difference.
+            return passthrough(query, reason=f"{type(exc).__name__}: {exc}"[:200])
 
         return parse_response(response.text or "", query)
 

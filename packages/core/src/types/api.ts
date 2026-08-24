@@ -250,6 +250,13 @@ export interface components {
             refused: boolean;
             /** Results */
             results: components["schemas"]["SearchResult"][];
+            /**
+             * Stage1 Failed
+             * @default false
+             */
+            stage1_failed: boolean;
+            /** Stage1 Failure Reason */
+            stage1_failure_reason?: string | null;
             /** Stage1 Ms */
             stage1_ms?: number | null;
             /** Total */
