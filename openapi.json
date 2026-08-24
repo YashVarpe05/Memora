@@ -142,8 +142,23 @@
             "title": "Database",
             "type": "string"
           },
+          "degraded_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Message"
+          },
           "pgvector": {
             "title": "Pgvector",
+            "type": "string"
+          },
+          "query_understanding": {
+            "title": "Query Understanding",
             "type": "string"
           },
           "redis": {
@@ -164,7 +179,8 @@
           "database",
           "pgvector",
           "redis",
-          "role"
+          "role",
+          "query_understanding"
         ],
         "title": "ReadinessResponse",
         "type": "object"
@@ -205,6 +221,17 @@
           "corpus_exhausted": {
             "title": "Corpus Exhausted",
             "type": "boolean"
+          },
+          "degraded_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Degraded Message"
           },
           "documents_in_window": {
             "title": "Documents In Window",

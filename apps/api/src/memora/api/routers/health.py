@@ -21,6 +21,9 @@ class ReadinessResponse(BaseModel):
     pgvector: str
     redis: str
     role: str
+    # Observed, not probed - checking quota would spend the quota being checked.
+    query_understanding: str
+    degraded_message: str | None = None
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -71,11 +74,18 @@ async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResp
         pass
 
     healthy = database == "up" and pgvector == "installed" and redis_state == "up"
+    from memora.services.stage1_health import describe, health
+
+    stage1 = health().status()
     overall = "ready" if healthy else "degraded"
+    if healthy and stage1.degraded:
+        overall = "degraded"
     return ReadinessResponse(
         status=overall,
         database=database,
         pgvector=pgvector,
         redis=redis_state,
         role=role,
+        query_understanding=stage1.state,
+        degraded_message=describe(stage1),
     )

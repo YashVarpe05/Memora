@@ -208,8 +208,12 @@ export interface components {
         ReadinessResponse: {
             /** Database */
             database: string;
+            /** Degraded Message */
+            degraded_message?: string | null;
             /** Pgvector */
             pgvector: string;
+            /** Query Understanding */
+            query_understanding: string;
             /** Redis */
             redis: string;
             /** Role */
@@ -238,6 +242,8 @@ export interface components {
             chunks_examined: number;
             /** Corpus Exhausted */
             corpus_exhausted: boolean;
+            /** Degraded Message */
+            degraded_message?: string | null;
             /** Documents In Window */
             documents_in_window: number;
             /** Filters */

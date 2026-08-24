@@ -133,3 +133,12 @@ async def api(app, db, doubles, test_user_id, blob_store):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_stage1_health():
+    """Stage 1 health is process-local, so one test's failures would leak into the next."""
+    from memora.services import stage1_health
+
+    stage1_health._health = stage1_health.Stage1Health()
+    yield

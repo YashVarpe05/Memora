@@ -127,13 +127,16 @@ class FakeStageOne:
     """
 
     def __init__(self, **filters) -> None:
+        self.fails: str | None = filters.pop("fails", None)
         self.filters = filters
         self.calls: list[str] = []
 
     async def extract(self, query: str):
-        from memora.services.query_understanding import QueryFilters
+        from memora.services.query_understanding import QueryFilters, passthrough
 
         self.calls.append(query)
+        if self.fails:
+            return passthrough(query, self.fails)
         return QueryFilters(
             semantic_query=self.filters.get("semantic_query", query),
             source_types=tuple(self.filters.get("source_types", ())),

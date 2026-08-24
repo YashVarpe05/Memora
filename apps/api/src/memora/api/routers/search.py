@@ -28,6 +28,7 @@ from memora.services.query_understanding import (
 )
 from memora.services.retrieval import has_weak_evidence
 from memora.services.search import Boosts, search_documents
+from memora.services.stage1_health import describe, health
 
 router = APIRouter(tags=["search"])
 
@@ -78,6 +79,9 @@ class SearchResponse(BaseModel):
     # swallowed: a total outage otherwise looks exactly like having no opinion.
     stage1_failed: bool = False
     stage1_failure_reason: str | None = None
+    # A sentence for the user, present only when something is actually wrong. The
+    # UI shows this; silent degradation to dense-only is the worst failure here.
+    degraded_message: str | None = None
 
 
 def get_embedder() -> Embedder:
@@ -113,6 +117,7 @@ async def search(
         started = time.perf_counter()
         filters = await stage_one.extract(payload.query)
         stage1_ms = int((time.perf_counter() - started) * 1000)
+        health().record(failed=filters.failed, reason=filters.failure_reason)
 
     # The USER'S query is embedded, not stage 1's rewrite.
     #
@@ -158,6 +163,7 @@ async def search(
             stage1_ms=stage1_ms,
             stage1_failed=payload.stage1 and filters.failed,
             stage1_failure_reason=filters.failure_reason if filters.failed else None,
+            degraded_message=describe(health().status()) if payload.stage1 else None,
         )
 
     return SearchResponse(
@@ -171,6 +177,7 @@ async def search(
         stage1_ms=stage1_ms,
         stage1_failed=payload.stage1 and filters.failed,
         stage1_failure_reason=filters.failure_reason if filters.failed else None,
+        degraded_message=describe(health().status()) if payload.stage1 else None,
         results=[
             SearchResult(
                 rank=r.rank,
