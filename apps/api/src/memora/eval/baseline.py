@@ -384,12 +384,23 @@ def render(metrics: Metrics, meta: dict) -> str:
             "stage 1 had nothing to extract. Skipping cannot improve a result — it can only "
             "fail to help one. Rows skipped:",
             "",
-            "| row | query | why |",
-            "|---|---|---|",
+            "| row | query | rank | predicted harm |",
+            "|---|---|---|---|",
         ]
+        # Named in prompts/phase-3c-skip-stage1.md before the heuristic was written.
+        # Rendered here so the rows that were predicted to suffer are readable next to
+        # what actually happened to them, rather than checked by hand afterwards.
+        PREDICTED_HARM = {
+            "q005": "loses entities [drone]",
+            "q011": "loses entities [uipath, chennai] — highest risk",
+            "q015": "loses entities [uber]",
+        }
         for outcome in skipped:
             rank = "—" if outcome.rank is None else str(outcome.rank)
-            lines.append(f"| {outcome.row.id} | {outcome.row.query} | rank {rank} |")
+            harm = PREDICTED_HARM.get(outcome.row.id, "none predicted")
+            lines.append(
+                f"| {outcome.row.id} | {outcome.row.query} | {rank} | {harm} |"
+            )
 
     latencies = [o.stage1_ms for o in metrics.outcomes if o.stage1_ms is not None]
     if latencies:
