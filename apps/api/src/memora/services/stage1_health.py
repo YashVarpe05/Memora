@@ -35,7 +35,14 @@ class Stage1Status:
 
     @property
     def degraded(self) -> bool:
-        return self.state != "ok"
+        """Something is actually wrong. "unknown" is not.
+
+        A fresh process has made no stage 1 calls, so it has proved nothing - but that
+        is not a fault, and reporting it as one would put the whole system in `degraded`
+        on every boot. A warning that is always on is a warning nobody reads, which is
+        the failure this module exists to prevent, arriving by another route.
+        """
+        return self.state in ("down", "degraded")
 
 
 class Stage1Health:
@@ -82,6 +89,18 @@ def health() -> Stage1Health:
     return _health
 
 
+def _compact(reason: str | None) -> str:
+    """The useful head of a provider error, without the JSON body and half a URL.
+
+    Real reasons look like `ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code'...`,
+    truncated at 200 characters mid-sentence. A banner has to stay readable.
+    """
+    if not reason:
+        return "unknown"
+    head = reason.split("{", 1)[0].strip().rstrip(".")
+    return head or reason[:60].strip()
+
+
 def describe(status: Stage1Status) -> str | None:
     """A sentence a person can act on, or None when nothing is wrong."""
     if status.state == "ok" or status.state == "unknown":
@@ -90,10 +109,10 @@ def describe(status: Stage1Status) -> str | None:
         return (
             "Query understanding is unavailable, so searches are running on plain "
             "similarity only and results will be worse. Most likely the daily API quota "
-            f"is exhausted. Last error: {status.last_failure}"
+            f"is exhausted. Last error: {_compact(status.last_failure)}."
         )
     return (
         f"Query understanding failed on {status.recent_failures} of the last "
         f"{status.recent_calls} searches. Results may be worse than usual. "
-        f"Last error: {status.last_failure}"
+        f"Last error: {_compact(status.last_failure)}."
     )

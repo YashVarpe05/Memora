@@ -132,11 +132,25 @@ per-model: four models is 80 calls a day, which is a workaround rather than an
 architecture.
 
 **C — skip stage 1 when the query carries no filterable signal.** Measured on the cached
-extractions: **7 of 18 queries produced no usable filter at all** — 39% of calls wasted.
-Skipping those would raise the effective ceiling from 20 to roughly 33 searches a day. The
+extractions: **4 of 18 queries produced no usable filter at all** — 22% of calls wasted.
+Skipping those would raise the effective ceiling from 20 to roughly 25 searches a day. The
 catch is that you cannot know a query has no signal without asking, so it needs a local
 heuristic — source-type words, person names, date phrases — and a wrong prediction loses
-the filter for a query that needed one. Untested, and the cheapest thing on this list.
+the filter for a query that needed one. Built in phase 3c; see `PHASE3C.md`.
+
+> **Correction, 2026-08-25.** This paragraph first said *7 of 18* and *39%*, projecting a
+> ceiling of ~33 searches a day. Both numbers were wrong. Recounted directly — treating
+> any of `source_types` / `sender` / `entities` / `after` / `before` as a usable filter —
+> the empty extractions are **q002, q003, q004, q014: 4 of 18**.
+>
+> A second problem sits underneath the first. **Every one of the 18 cached extractions
+> keys against `gemini-flash-lite-latest`, not the pinned `gemini-2.5-flash`** — the
+> rejected model from the section above. So the count describes the extractor this
+> project does not use, and a weaker extractor finds *fewer* filters than the pinned one
+> would. 22% is therefore an upper bound on what skipping could save.
+>
+> The real gain is five extra searches a day or fewer, against the risk of losing a
+> filter. That is a materially worse trade than the one option C was chosen on.
 
 **D — accept the cap.** 20 searches a day. Adequate for a demo, not for development, and
 not for anyone actually using it. Free.

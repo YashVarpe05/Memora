@@ -20,6 +20,7 @@ from memora.config import get_settings
 from memora.repositories.chunk import ChunkRepository
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.masking import mask_identifiers
+from memora.services.query_signal import has_filterable_signal, why
 from memora.services.query_understanding import (
     QueryFilters,
     QueryUnderstanding,
@@ -79,6 +80,10 @@ class SearchResponse(BaseModel):
     # swallowed: a total outage otherwise looks exactly like having no opinion.
     stage1_failed: bool = False
     stage1_failure_reason: str | None = None
+    # A skip is a choice; a failure is a fault. Reported separately so quota
+    # exhaustion can never hide inside a field that looks deliberate.
+    stage1_skipped: bool = False
+    stage1_skip_reason: str | None = None
     # A sentence for the user, present only when something is actually wrong. The
     # UI shows this; silent degradation to dense-only is the worst failure here.
     degraded_message: str | None = None
@@ -113,7 +118,11 @@ async def search(
 ) -> SearchResponse:
     filters: QueryFilters = passthrough(payload.query)
     stage1_ms: int | None = None
-    if payload.stage1:
+    # A query with no source-type word, no sender and no date gets an empty extraction
+    # anyway, so the call buys nothing. Twenty generate calls a day makes that worth
+    # checking locally. See services/query_signal.py for what this cannot see.
+    skipped = payload.stage1 and not has_filterable_signal(payload.query)
+    if payload.stage1 and not skipped:
         started = time.perf_counter()
         filters = await stage_one.extract(payload.query)
         stage1_ms = int((time.perf_counter() - started) * 1000)
@@ -161,8 +170,12 @@ async def search(
             corpus_exhausted=outcome.exhausted,
             filters=filters.raw or None,
             stage1_ms=stage1_ms,
-            stage1_failed=payload.stage1 and filters.failed,
-            stage1_failure_reason=filters.failure_reason if filters.failed else None,
+            stage1_failed=payload.stage1 and not skipped and filters.failed,
+            stage1_failure_reason=(
+                filters.failure_reason if filters.failed and not skipped else None
+            ),
+            stage1_skipped=skipped,
+            stage1_skip_reason=why(payload.query) if skipped else None,
             degraded_message=describe(health().status()) if payload.stage1 else None,
         )
 
@@ -175,8 +188,12 @@ async def search(
         corpus_exhausted=outcome.exhausted,
         filters=filters.raw or None,
         stage1_ms=stage1_ms,
-        stage1_failed=payload.stage1 and filters.failed,
-        stage1_failure_reason=filters.failure_reason if filters.failed else None,
+        stage1_failed=payload.stage1 and not skipped and filters.failed,
+        stage1_failure_reason=(
+                filters.failure_reason if filters.failed and not skipped else None
+            ),
+        stage1_skipped=skipped,
+        stage1_skip_reason=why(payload.query) if skipped else None,
         degraded_message=describe(health().status()) if payload.stage1 else None,
         results=[
             SearchResult(

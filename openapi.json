@@ -298,6 +298,22 @@
             ],
             "title": "Stage1 Ms"
           },
+          "stage1_skip_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage1 Skip Reason"
+          },
+          "stage1_skipped": {
+            "default": false,
+            "title": "Stage1 Skipped",
+            "type": "boolean"
+          },
           "total": {
             "title": "Total",
             "type": "integer"

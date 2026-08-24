@@ -40,7 +40,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/api': { target: 'http://localhost:8000', changeOrigin: true },
+      // The API mounts its routers at the root, so the /api prefix is a dev-server
+      // convention only and has to be stripped. Without the rewrite every call 404s.
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+        rewrite: (path: string) => path.replace(/^\/api/, ''),
+      },
     },
   },
 });

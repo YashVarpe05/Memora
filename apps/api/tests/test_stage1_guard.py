@@ -9,10 +9,11 @@ up as a result.
 """
 
 import pytest
-from support import FakeStageOne, make_png
 
 from memora.api.routers import search as search_router
 from memora.services.stage1_health import Stage1Health, describe
+
+from support import FakeStageOne, make_png
 
 
 def statuses(*outcomes: bool) -> Stage1Health:
@@ -28,6 +29,15 @@ def test_no_calls_yet_is_unknown_not_ok():
 
     assert status.state == "unknown"
     assert describe(status) is None, "nothing has failed, so there is nothing to warn about"
+
+
+def test_unknown_is_not_a_degradation():
+    """A fresh boot has proved nothing, but proving nothing is not a fault.
+
+    Treating it as one puts /health/ready into `degraded` on every restart, and an
+    always-on warning is one nobody reads.
+    """
+    assert not Stage1Health().status().degraded
 
 
 def test_all_recent_calls_failing_is_down():
@@ -66,6 +76,21 @@ def test_the_message_names_the_likely_cause_and_the_consequence():
     assert "429 quota exceeded" in message, "and the actual error"
 
 
+def test_the_message_drops_the_json_body_of_a_provider_error():
+    """Real reasons are truncated mid-URL at 200 chars. A banner has to stay readable."""
+    health = Stage1Health()
+    health.record(
+        failed=True,
+        reason="ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message'",
+    )
+
+    message = describe(health.status())
+
+    assert message is not None
+    assert message.endswith("429 RESOURCE_EXHAUSTED.")
+    assert "{" not in message
+
+
 @pytest.fixture
 def failing_stage1(app):
     """Every stage 1 call fails, exactly as it does when the daily quota is gone."""
@@ -74,22 +99,24 @@ def failing_stage1(app):
     return broken
 
 
+# Queries here deliberately carry a source-type word ("scanned", "document"), because
+# query_signal skips stage 1 for queries that carry none - see test_query_signal.py.
 async def test_search_still_answers_when_stage1_is_down(api, doubles, failing_stage1):
     """Degrading beats 500ing. The point is that it degrades *visibly*."""
-    doubles["ocr"].text = "government of india aadhaar identity"
+    doubles["ocr"].text = "the scanned aadhaar document government of india identity"
     await api.post("/uploads", files={"file": ("id.png", make_png(), "image/png")})
 
-    response = await api.post("/search", json={"query": "aadhaar identity card"})
+    response = await api.post("/search", json={"query": "the scanned aadhaar document"})
 
     assert response.status_code == 200
     assert response.json()["results"], "the fallback must still retrieve"
 
 
 async def test_the_response_says_stage1_failed_and_why(api, doubles, failing_stage1):
-    doubles["ocr"].text = "government of india aadhaar identity"
+    doubles["ocr"].text = "the scanned aadhaar document government of india identity"
     await api.post("/uploads", files={"file": ("id.png", make_png(), "image/png")})
 
-    body = (await api.post("/search", json={"query": "aadhaar identity card"})).json()
+    body = (await api.post("/search", json={"query": "the scanned aadhaar document"})).json()
 
     assert body["stage1_failed"] is True
     assert "quota" in body["stage1_failure_reason"].lower()
@@ -98,10 +125,10 @@ async def test_the_response_says_stage1_failed_and_why(api, doubles, failing_sta
 
 
 async def test_a_working_stage1_carries_no_warning(api, doubles):
-    doubles["ocr"].text = "government of india aadhaar identity"
+    doubles["ocr"].text = "the scanned aadhaar document government of india identity"
     await api.post("/uploads", files={"file": ("id.png", make_png(), "image/png")})
 
-    body = (await api.post("/search", json={"query": "aadhaar identity card"})).json()
+    body = (await api.post("/search", json={"query": "the scanned aadhaar document"})).json()
 
     assert body["stage1_failed"] is False
     assert body["degraded_message"] is None, "a warning that is always on gets ignored"
@@ -109,11 +136,11 @@ async def test_a_working_stage1_carries_no_warning(api, doubles):
 
 async def test_deliberately_disabling_stage1_is_not_a_failure(api, doubles):
     """The ablation arm runs dense-only on purpose. That is a choice, not a fault."""
-    doubles["ocr"].text = "government of india aadhaar identity"
+    doubles["ocr"].text = "the scanned aadhaar document government of india identity"
     await api.post("/uploads", files={"file": ("id.png", make_png(), "image/png")})
 
     body = (
-        await api.post("/search", json={"query": "aadhaar identity", "stage1": False})
+        await api.post("/search", json={"query": "the scanned aadhaar document", "stage1": False})
     ).json()
 
     assert body["stage1_failed"] is False
@@ -122,11 +149,13 @@ async def test_deliberately_disabling_stage1_is_not_a_failure(api, doubles):
 
 async def test_readiness_reports_stage1_before_anyone_searches(api, doubles, failing_stage1):
     """The pre-flight instrument: check this before the demo, not during it."""
-    assert (await api.get("/health/ready")).json()["query_understanding"] == "unknown"
+    before = (await api.get("/health/ready")).json()
+    assert before["query_understanding"] == "unknown"
+    assert before["status"] == "ready", "an unproven stage 1 is not a broken system"
 
-    doubles["ocr"].text = "government of india aadhaar"
+    doubles["ocr"].text = "the scanned aadhaar document government of india identity"
     await api.post("/uploads", files={"file": ("id.png", make_png(), "image/png")})
-    await api.post("/search", json={"query": "aadhaar"})
+    await api.post("/search", json={"query": "the scanned aadhaar document"})
 
     ready = (await api.get("/health/ready")).json()
     assert ready["query_understanding"] == "down"

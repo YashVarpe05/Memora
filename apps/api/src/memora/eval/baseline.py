@@ -54,6 +54,7 @@ class QueryOutcome:
     widenings: int
     stage1_ms: int | None = None
     stage1_failed: bool = False
+    stage1_skipped: bool = False
 
     @property
     def is_refusal_row(self) -> bool:
@@ -258,6 +259,7 @@ async def measure(client, rows: list[GoldRow], stage1: bool = True) -> Metrics:
                 widenings=body.get("widenings", 0),
                 stage1_ms=body.get("stage1_ms"),
                 stage1_failed=bool(body.get("stage1_failed")),
+                stage1_skipped=bool(body.get("stage1_skipped")),
             )
         )
     return metrics
@@ -366,6 +368,28 @@ def render(metrics: Metrics, meta: dict) -> str:
                 "answering. It is the single clearest argument in this table for query "
                 "understanding.",
             ]
+
+    skipped = [o for o in metrics.outcomes if o.stage1_skipped]
+    if skipped and meta.get("stage1"):
+        spent = len(metrics.outcomes) - len(skipped)
+        lines += [
+            "",
+            "## Stage 1 calls skipped",
+            "",
+            f"**{spent} generate calls for {len(metrics.outcomes)} queries.** The free tier "
+            "allows 20 a day, so this run fits in one day's budget; a run without skipping "
+            "does not.",
+            "",
+            "Skipped means the query carried no source-type word, no sender and no date, so "
+            "stage 1 had nothing to extract. Skipping cannot improve a result — it can only "
+            "fail to help one. Rows skipped:",
+            "",
+            "| row | query | why |",
+            "|---|---|---|",
+        ]
+        for outcome in skipped:
+            rank = "—" if outcome.rank is None else str(outcome.rank)
+            lines.append(f"| {outcome.row.id} | {outcome.row.query} | rank {rank} |")
 
     latencies = [o.stage1_ms for o in metrics.outcomes if o.stage1_ms is not None]
     if latencies:
@@ -498,8 +522,17 @@ async def run(
         # numbers. Reporting that as a stage 1 measurement is how a quota outage
         # gets written down as a finding, which happened once already.
         failures = [o for o in metrics.outcomes if o.stage1_failed]
+        skipped = [o for o in metrics.outcomes if o.stage1_skipped]
+        if stage1 and skipped:
+            print(
+                f"  stage 1 skipped on {len(skipped)}/{len(metrics.outcomes)} queries "
+                f"(no filterable signal): {sorted(o.row.id for o in skipped)}"
+            )
+            print(f"  generate calls spent: {len(metrics.outcomes) - len(skipped)}")
         if stage1 and failures:
-            total = len(metrics.outcomes)
+            # Against the rows where stage 1 actually RAN. Counting skips as successes
+            # would let a total outage look partial and slip past this gate.
+            total = len(metrics.outcomes) - len(skipped)
             print()
             print(f"  stage 1 failed on {len(failures)}/{total} queries.")
             print(f"    e.g. {sorted(o.row.id for o in failures)[:3]}")

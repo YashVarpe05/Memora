@@ -265,6 +265,13 @@ export interface components {
             stage1_failure_reason?: string | null;
             /** Stage1 Ms */
             stage1_ms?: number | null;
+            /** Stage1 Skip Reason */
+            stage1_skip_reason?: string | null;
+            /**
+             * Stage1 Skipped
+             * @default false
+             */
+            stage1_skipped: boolean;
             /** Total */
             total: number;
             /** Widenings */

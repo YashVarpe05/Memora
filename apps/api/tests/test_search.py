@@ -170,7 +170,11 @@ async def test_boosted_and_raw_scores_are_both_reported(api, doubles):
     doubles["stage_one"].filters = {"source_types": ["image"]}
     await upload_image(api, doubles, "dashboard with forms", "shot.png")
 
-    top = (await api.post("/search", json={"query": "dashboard"})).json()["results"][0]
+    # "screenshot" is what makes stage 1 run at all; a bare "dashboard" carries no
+    # filterable signal and is skipped, so there would be no boost to report.
+    top = (
+        await api.post("/search", json={"query": "dashboard screenshot"})
+    ).json()["results"][0]
 
     assert top["score"] > top["raw_score"], "a matching source type should boost"
     assert top["raw_score"] <= 1.0
