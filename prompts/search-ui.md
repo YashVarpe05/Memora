@@ -112,11 +112,99 @@ The real corpus produces all of these:
 | **Long filename** | `WhatsApp Image 2026-07-03 at 01.24.47 (1).jpeg` must truncate without breaking the card. |
 | **Viewer failure** | A PDF that will not render needs a download fallback, not a blank screen. |
 
-**The 2–3 second wait deserves a decision rather than a spinner.** Options: show the stage-1
-filters as they arrive so the user sees the system understood them; or run the search
-unfiltered first and re-rank when stage 1 returns. The second is more work and better, and
-it is also the mitigation `PHASE3.md` already lists for latency. **Pick one deliberately and
-write down which.**
+### Decided: search unfiltered first, re-rank when stage 1 returns
+
+Not a spinner. **Fire both arms in parallel and let the screen improve.**
+
+```
+on submit ──┬─► POST /search {stage1: false}  → ~50 ms  → render immediately
+            └─► POST /search {stage1: true}   → 2–3 s   → re-rank in place
+```
+
+Both endpoints exist; `stage1: false` is the ablation switch already used by the harness.
+**No API change is needed** — this is two requests from the client, and the second replaces
+the first's ordering when it lands.
+
+Why this and not the alternative:
+
+- **Something correct is on screen in 50 ms.** The dense-only arm is Recall@1 0.842, so the
+  right document is already first about five times in six. The stage-1 arm improves it to
+  0.947, which is a re-rank, not a rescue.
+- **It degrades into the good case.** If stage 1 fails — quota, transport, parse — the user
+  already has results and the banner explains why they may be worse. Compare the spinner
+  design, where a failure turns three seconds of waiting into an error. That is the worst
+  possible version of the demo-day failure the whole guard exists to prevent.
+- `PHASE3.md` already names this as the latency mitigation, so it is a recorded decision
+  being executed rather than a new idea.
+
+**Cost: two query embeddings per search instead of one.** At $0.15/1M that is ₹0.0006 —
+below noise, and the reason it is affordable is `quota-ceiling-decision.md`.
+
+**The re-rank must be visible, not sneaky.** Rows silently reordering under a reading user
+is disorienting. Animate the reorder, and mark the transition — this is where the extracted
+filters appear, so the movement has a visible cause.
+
+## Showing the work, because a correct result looks like nothing happened
+
+**This is a design requirement, not decoration.** 18 of 19 at rank 1 sounds impressive and
+will not *feel* impressive, because success looks like a list appearing. Nothing on screen
+says the system understood "the mail yash sent to rutuja" as a sender plus a document type,
+searched inside that, and ranked the answer first. The examiner sees a search box that
+worked, which is what every search box appears to do.
+
+**The fix is in the UI, not in retrieval.** Retrieval is already at 0.947. What is missing is
+evidence of the work.
+
+Every field below is **already in the `POST /search` response.** Nothing new is computed.
+
+### 1. The extracted filters, as chips
+
+When the stage-1 arm returns, show what it understood, above the results:
+
+```
+understood:  [ from: aradhana ]  [ type: chat ]  [ image ]
+```
+
+This does triple duty: it proves stage 1 ran, it explains why the list just re-ranked, and it
+**is the two-stage architecture made visible** — the project's central contribution, on
+screen, without a word of explanation. From `filters` in the response.
+
+When stage 1 is skipped by the signal heuristic, say so plainly — *"no filters needed"* —
+rather than showing nothing. An empty row is ambiguous between "skipped" and "failed", and
+this project has spent real effort keeping those distinct in the API. Throwing that away at
+the last inch would be a waste.
+
+### 2. Query terms highlighted in the snippet
+
+The card already carries `snippet` from the matching chunk. Highlight the query's terms
+inside it. It answers "why this one" in the place the eye already is, and it makes the
+match a fact the user can check rather than a claim.
+
+Highlight in the component, never server-side — the API returns data, the shell renders it.
+
+### 3. Why this document ranked first
+
+The response carries both `score` and `raw_score`, and the difference is exactly the filter
+bonus. On the top result:
+
+```
+rank 1 · matched on content + sender + type
+```
+
+Derived from which filters the document satisfies. It turns `FILTER_BONUS = 0.08` from an
+implementation detail into the visible reason the right answer won.
+
+### 4. The one miss, handled deliberately
+
+q019 misses in every arm because its file has no extractable text. **Do not hide it.** A
+system that says *"three of your files contain no readable text and cannot be found by
+description yet"* is more credible than one that silently returns nothing — and it sets up
+the CLIP phase as the answer to a problem the examiner has already seen.
+
+### What not to do
+
+**Do not add a debug panel.** This is the product surface, not an inspector. Everything above
+is a sentence or a chip in the normal flow; if it needs a toggle, it is too much.
 
 ## Files
 
@@ -149,7 +237,7 @@ Not a measurement, so these are design predictions to check against reality:
 | 1 | The calendar `.ics` will look wrong on a card. It is 353 of 377 chunks and wins queries it should not — its snippet will be a fragment of an event with no useful title. The card design must survive a document that is mostly noise. |
 | 2 | Thumbnails will be missing more often than expected. Generation is best-effort at ingest and three files have no text at all. |
 | 3 | The 2–3 s wait will feel much worse in a browser than it does in a test harness. |
-| 4 | Rank 1 being correct 18 times out of 19 will feel **less impressive** than the number suggests, because the one miss is visible and the successes look unremarkable. That is worth knowing before the defence. |
+| 4 | Rank 1 being correct 18 times out of 19 will feel **less impressive** than the number suggests, because the one miss is visible and the successes look unremarkable. **This prediction is now designed against** — see "Showing the work" above. If the filter chips and the match explanation do not fix it, the problem is the demo script, not the UI. |
 
 ## Acceptance
 
@@ -162,6 +250,10 @@ Not a measurement, so these are design predictions to check against reality:
 6. The banner appears on the search screen when stage 1 is degraded, and is gone from chat.
 7. `pnpm typecheck` and `pnpm build` pass; no hand-written API types.
 8. Long filenames and missing thumbnails handled, checked against the real corpus.
+9. Results appear in well under a second, before stage 1 returns, and re-rank visibly when
+   it does. If stage 1 fails, the first results stay on screen and the banner explains.
+10. The extracted filters are visible on screen after a stage-1 search, and a skipped
+    stage 1 is distinguishable from a failed one **in the UI**, not just in the response.
 
 ## Risks
 
