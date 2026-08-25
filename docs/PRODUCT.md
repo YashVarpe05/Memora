@@ -356,5 +356,9 @@ not cuttable now that the product is "search the files already on your phone", b
 PWA cannot enumerate device storage at all. Cutting it does not degrade the product; it
 changes which product this is.
 
-Never cut: **OCR**, Gmail connector, query understanding, ranked file results with viewer
-and download, per-owner isolation, the evaluation harness.
+Never cut: **OCR**, an automatic non-upload intake path, query understanding, ranked file
+results with viewer and download, per-owner isolation, the evaluation harness.
+
+**"Gmail connector" used to be on that list by name.** It has been generalised for the
+reason given under "What this is NOT": the requirement is automatic intake, and device
+indexing meets it more directly on the platform this product is about.
