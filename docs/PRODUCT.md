@@ -271,10 +271,28 @@ The requirement is that a text query can match a document by **what it looks lik
 - Not an always-on screen recorder. Capture is deliberate and consented.
 - Not a general chatbot. If the document isn't in the user's corpus, the correct response
   is "I don't have that."
-- Not a document QA tool. Upload-only would make this NotebookLM. **At least one live
-  connector (Gmail) is required** — the problem being solved is that documents are
-  already scattered, so requiring manual gathering sidesteps the problem rather than
-  fixing it.
+- Not a document QA tool. Upload-only would make this NotebookLM. **At least one
+  automatic, non-upload intake path is required** — the problem being solved is that
+  documents are already scattered, so requiring manual gathering sidesteps the problem
+  rather than fixing it.
+
+  This line used to name the Gmail connector specifically, and Gmail sat under "never
+  cut". **Device indexing now satisfies it, and satisfies it better.** The rule was never
+  about Gmail; it was about the product not asking the user to do the gathering. Judged
+  against that:
+
+  - Gmail covers **one** source. A device scan covers everything that ever landed on the
+    phone — email attachments among them, since they get saved to `Downloads/`.
+  - Gmail is a hosted third party, an OAuth flow stuck in Testing mode, and a consent
+    screen. Device indexing reads local files and sends nothing anywhere, which is the
+    same direction as every other architectural decision here.
+  - The product sentence is *"searches the files already on your phone."* A device scan
+    **is** that sentence. Gmail is adjacent to it.
+
+  So this is a substitution that makes the requirement stronger, not an exemption from
+  it. **Gmail becomes documented future work** — worth building, no longer load-bearing.
+  If device indexing is not built either, the rule is violated and upload-only is what
+  ships, which is the outcome the line exists to prevent.
 
 ---
 
