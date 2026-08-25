@@ -42,6 +42,11 @@ class SearchRequest(BaseModel):
     # The ablation switch. Off runs the dense-only path BASELINE.md recorded, so
     # both arms can be measured in one session against one corpus.
     stage1: bool = True
+    # The second ablation, one level in: run stage 1 on EVERY query, including the ones
+    # the signal heuristic would skip. This is the falsifier for keeping the skip - it
+    # is the only way to see what a skipped row would have got. Costs a call per skipped
+    # query, so it is off by default and belongs to the harness, not to real use.
+    stage1_skip: bool = True
 
 
 class SearchResult(BaseModel):
@@ -121,7 +126,11 @@ async def search(
     # A query with no source-type word, no sender and no date gets an empty extraction
     # anyway, so the call buys nothing. Twenty generate calls a day makes that worth
     # checking locally. See services/query_signal.py for what this cannot see.
-    skipped = payload.stage1 and not has_filterable_signal(payload.query)
+    skipped = (
+        payload.stage1
+        and payload.stage1_skip
+        and not has_filterable_signal(payload.query)
+    )
     if payload.stage1 and not skipped:
         started = time.perf_counter()
         filters = await stage_one.extract(payload.query)

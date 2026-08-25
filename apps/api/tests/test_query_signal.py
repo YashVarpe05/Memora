@@ -132,3 +132,45 @@ async def test_disabling_stage1_does_not_report_a_skip(api, doubles):
     ).json()
 
     assert body["stage1_skipped"] is False
+
+
+async def test_the_falsifier_flag_forces_stage1_on_a_skippable_query(api, doubles, app):
+    """The ablation that tests the skip itself.
+
+    Keeping the skip rests on the claim that skipped rows lose nothing. The only way to
+    check that is to run stage 1 on them anyway and compare, so the harness needs a
+    switch the product does not have.
+    """
+    spy = FakeStageOne(source_types=["image"])
+    app.dependency_overrides[search_router.get_query_understanding] = lambda: spy
+    doubles["ocr"].text = "uipath chennai job opening"
+    await api.post("/uploads", files={"file": ("job.png", make_png(), "image/png")})
+
+    body = (
+        await api.post(
+            "/search",
+            json={"query": "the uipath job in chennai", "stage1_skip": False},
+        )
+    ).json()
+
+    assert spy.calls == ["the uipath job in chennai"], "the skip was not overridden"
+    assert body["stage1_skipped"] is False
+    assert body["stage1_skip_reason"] is None
+
+
+async def test_turning_stage1_off_beats_forcing_the_skip_off(api, doubles, app):
+    """stage1=False wins. Otherwise the dense arm would silently make calls."""
+    spy = FakeStageOne()
+    app.dependency_overrides[search_router.get_query_understanding] = lambda: spy
+    doubles["ocr"].text = "uipath chennai job opening"
+    await api.post("/uploads", files={"file": ("job.png", make_png(), "image/png")})
+
+    body = (
+        await api.post(
+            "/search",
+            json={"query": "my passport", "stage1": False, "stage1_skip": False},
+        )
+    ).json()
+
+    assert spy.calls == [], "the dense-only arm must never call stage 1"
+    assert body["stage1_skipped"] is False

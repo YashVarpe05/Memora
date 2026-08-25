@@ -235,6 +235,11 @@ export interface components {
              * @default true
              */
             stage1: boolean;
+            /**
+             * Stage1 Skip
+             * @default true
+             */
+            stage1_skip: boolean;
         };
         /** SearchResponse */
         SearchResponse: {

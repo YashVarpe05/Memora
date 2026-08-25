@@ -228,12 +228,19 @@ async def ingest(client, corpus: Path) -> tuple[int, int, list[str]]:
     return documents, chunks, rejected
 
 
-async def measure(client, rows: list[GoldRow], stage1: bool = True) -> Metrics:
+async def measure(
+    client, rows: list[GoldRow], stage1: bool = True, stage1_skip: bool = True
+) -> Metrics:
     metrics = Metrics()
     for row in rows:
         response = await client.post(
             "/search",
-            json={"query": row.query, "limit": MRR_DEPTH, "stage1": stage1},
+            json={
+                "query": row.query,
+                "limit": MRR_DEPTH,
+                "stage1": stage1,
+                "stage1_skip": stage1_skip,
+            },
         )
         body = response.json()
         results = body.get("results", [])
@@ -488,7 +495,12 @@ def render(metrics: Metrics, meta: dict) -> str:
 
 
 async def run(
-    gold_path: Path, corpus: Path, out: Path, do_ingest: bool, stage1: bool = True
+    gold_path: Path,
+    corpus: Path,
+    out: Path,
+    do_ingest: bool,
+    stage1: bool = True,
+    stage1_skip: bool = True,
 ) -> int:
     from httpx import ASGITransport, AsyncClient
 
@@ -544,8 +556,11 @@ async def run(
             chunks = await chunk_count(owner)
             print(f"  reusing indexed corpus: {documents} documents, {chunks} chunks")
 
-        print(f"  running {len(rows)} queries ({len(rows)} embeds), stage1={stage1}...")
-        metrics = await measure(client, rows, stage1=stage1)
+        arm = "stage1" if stage1 else "dense"
+        if stage1 and not stage1_skip:
+            arm = "stage1, skip heuristic OFF"
+        print(f"  running {len(rows)} queries ({len(rows)} embeds), arm={arm}...")
+        metrics = await measure(client, rows, stage1=stage1, stage1_skip=stage1_skip)
 
         # A stage 1 that failed on every query produces exactly the dense-only
         # numbers. Reporting that as a stage 1 measurement is how a quota outage
@@ -580,6 +595,7 @@ async def run(
         "chunks": chunks,
         "ingest_seconds": elapsed,
         "stage1": stage1,
+        "stage1_skip": stage1_skip,
     }
     report = render(metrics, meta)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -633,6 +649,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="run the dense-only path, for the ablation arm",
     )
+    parser.add_argument(
+        "--no-stage1-skip",
+        action="store_true",
+        help=(
+            "run stage 1 on every query, including ones the signal heuristic would "
+            "skip - the falsifier for the skip. Costs one call per skipped row."
+        ),
+    )
     args = parser.parse_args(argv)
 
     gold = resolve(args.gold) if args.gold else anchored("docs/GOLD.jsonl")
@@ -644,7 +668,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     return asyncio.run(
-        run(gold, corpus, out, do_ingest=args.ingest, stage1=not args.no_stage1)
+        run(
+            gold,
+            corpus,
+            out,
+            do_ingest=args.ingest,
+            stage1=not args.no_stage1,
+            stage1_skip=not args.no_stage1_skip,
+        )
     )
 
 

@@ -204,6 +204,11 @@
             "default": true,
             "title": "Stage1",
             "type": "boolean"
+          },
+          "stage1_skip": {
+            "default": true,
+            "title": "Stage1 Skip",
+            "type": "boolean"
           }
         },
         "required": [
