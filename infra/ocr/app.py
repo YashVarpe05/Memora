@@ -212,3 +212,116 @@ async def ocr(
         text=text.strip(),
         ms=int((time.perf_counter() - started) * 1000),
     )
+
+
+# ---------------------------------------------------------------------------
+# CLIP. Searching a document by what it looks like.
+#
+# Some documents have no text at all. A photo of people yields an empty OCR string, so
+# no chunk and no vector are created, and the file is not ranked badly - it is absent.
+# Three files in the corpus are in that state, and hero query 7 has no path without this.
+#
+# Local on purpose. Sending the image to a hosted vision model would break architectural
+# rule 1 outright, because at layer one the image IS the document - and the masking
+# pipeline, which exists to stop identifier text leaving, would be bypassed entirely by
+# shipping a picture of the identifier instead.
+# ---------------------------------------------------------------------------
+
+CLIP_MODEL = os.environ.get("CLIP_MODEL", "ViT-B-32")
+CLIP_WEIGHTS = os.environ.get("CLIP_WEIGHTS", "laion2b_s34b_b79k")
+
+_clip: dict[str, object] = {}
+
+
+class EmbedResponse(BaseModel):
+    model: str
+    dims: int
+    embedding: list[float]
+    ms: int
+
+
+def _load_clip():
+    """Loaded once, lazily. The weights are baked into the image, so this touches no
+    network - a service that reaches nothing at runtime is part of the privacy claim."""
+    if "model" not in _clip:
+        import open_clip
+        import torch
+
+        torch.set_num_threads(max(1, (os.cpu_count() or 2) // 2))
+        model, _, preprocess = open_clip.create_model_and_transforms(
+            CLIP_MODEL, pretrained=CLIP_WEIGHTS
+        )
+        model.eval()
+        _clip["model"] = model
+        _clip["preprocess"] = preprocess
+        _clip["tokenizer"] = open_clip.get_tokenizer(CLIP_MODEL)
+    return _clip
+
+
+def _normalise(vector) -> list[float]:
+    """Unit-length, so cosine distance in pgvector is a dot product and comparable."""
+    return (vector / vector.norm(dim=-1, keepdim=True)).squeeze(0).tolist()
+
+
+@app.post("/embed/image", response_model=EmbedResponse)
+async def embed_image(file: Annotated[UploadFile, File(...)]) -> EmbedResponse:
+    import torch
+
+    data = await file.read()
+    started = time.perf_counter()
+    clip = _load_clip()
+    try:
+        # Reuse _prepare: EXIF rotation and mode conversion matter here too, and a
+        # sideways photo embeds as a sideways photo.
+        image = _prepare(data)
+        try:
+            tensor = clip["preprocess"](image).unsqueeze(0)
+        finally:
+            image.close()
+        with torch.no_grad():
+            vector = clip["model"].encode_image(tensor)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{type(exc).__name__}: {exc}"[:200]
+        ) from exc
+
+    embedding = _normalise(vector)
+    return EmbedResponse(
+        model=f"{CLIP_MODEL}/{CLIP_WEIGHTS}",
+        dims=len(embedding),
+        embedding=embedding,
+        ms=int((time.perf_counter() - started) * 1000),
+    )
+
+
+class TextEmbedRequest(BaseModel):
+    text: str
+
+
+@app.post("/embed/text", response_model=EmbedResponse)
+async def embed_text(payload: TextEmbedRequest) -> EmbedResponse:
+    """The query side of the shared space.
+
+    CLIP embeds text and images into ONE space, which is what lets "the group photo"
+    match a photo of a group with no text in it anywhere.
+    """
+    import torch
+
+    started = time.perf_counter()
+    clip = _load_clip()
+    try:
+        tokens = clip["tokenizer"]([payload.text])
+        with torch.no_grad():
+            vector = clip["model"].encode_text(tokens)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT, f"{type(exc).__name__}: {exc}"[:200]
+        ) from exc
+
+    embedding = _normalise(vector)
+    return EmbedResponse(
+        model=f"{CLIP_MODEL}/{CLIP_WEIGHTS}",
+        dims=len(embedding),
+        embedding=embedding,
+        ms=int((time.perf_counter() - started) * 1000),
+    )

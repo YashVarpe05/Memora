@@ -34,6 +34,51 @@ The corpus is 10 files. The gate needs 20 queries across 8 types, and
 
 ---
 
+## Retrieval is done. Stop tuning it.
+
+**After phase 3d and refusal, no further work on retrieval quality.** Not reranking, not
+prompt iteration, not additional ablations, not threshold calibration. Those become
+**documented future work** and go in the report as such.
+
+This is written down because the failure mode is specific and likely: retrieval is the part
+with a harness, a gold set, and a number that moves. It is *satisfying* to work on. A future
+session that opens this repo will find a measurement loop that rewards effort immediately,
+and two large capabilities that do not — and it will drift back to the number.
+
+**The number already crossed its threshold.** Recall@1 0.947 against a 0.842 baseline,
+reproduced three times, with pre-registered predictions and a silent-failure guard that
+caught two real outages. That is a strong report chapter and it is finished.
+
+**What is left are capability gaps, not quality gaps.** No amount of retrieval tuning makes
+a photo with no text findable, and none of it lets the app see a file the user has not
+uploaded. Two of the product's three sentences are unbuilt:
+
+| sentence | status |
+|---|---|
+| "find my fee receipt when the filename is `doc_8837.pdf`" | **built, measured** |
+| "it searches the files already on my device" | **not built — zero lines** |
+| "find the group photo" | **not built — zero lines** |
+
+**The only retrieval work that survives this rule is refusal**, and it is included because
+it is the last failing acceptance criterion rather than an improvement: typing nonsense
+currently returns ten results, and someone will do that during the defence. One day, then
+stop.
+
+### Order after that, and why
+
+1. **CLIP** — unblocks hero query 7 and gives `document_identity` a path that does not
+   depend on Tesseract reading laminate, which it cannot
+2. **Capacitor + device indexing** — the largest unbuilt thing in the project, and what
+   makes sentence 2 true
+3. Auth, report, UML
+
+**If time runs out during Capacitor**, the project still has measured retrieval, a working
+UI, visual search, the privacy architecture, and an honest chapter on why a native shell is
+required and what it would take. That is a complete submission. What is *not* a complete
+submission is a further-optimised retrieval number next to two unbuilt sentences.
+
+---
+
 ## Reclaimed scope — do not refill
 
 Audio ingestion, Whisper, and the arq job queue **left the critical path** when the

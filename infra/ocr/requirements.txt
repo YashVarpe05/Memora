@@ -3,3 +3,8 @@ uvicorn[standard]>=0.32
 pillow>=11.0
 pytesseract>=0.3.13
 python-multipart>=0.0.20
+# CLIP. Some documents have no text at all - a photo of people yields an empty OCR
+# string, so no chunk and no vector are ever created and the file is not ranked badly,
+# it is absent. Local on purpose: sending the image to a hosted vision model would
+# break architectural rule 1, because the image IS the document.
+open_clip_torch>=2.24
