@@ -268,13 +268,27 @@ async def measure(client, rows: list[GoldRow], stage1: bool = True) -> Metrics:
 def render(metrics: Metrics, meta: dict) -> str:
     hits_at_1 = sum(1 for o in metrics.retrieval_rows if o.rank == 1)
     refused = sum(1 for o in metrics.refusal_rows if o.refused)
+    # The heading has to name the arm that actually ran. It said "dense-only" on every
+    # report regardless, so a stage 1 run was filed under a title claiming stage 1 did
+    # not exist yet - a document disagreeing with its own measurement, which is the
+    # error this project keeps finding.
+    stage1_on = bool(meta.get("stage1"))
     lines = [
-        "# Baseline — dense-only retrieval",
+        "# Stage 1 — filtered retrieval" if stage1_on else "# Baseline — dense-only retrieval",
         "",
         f"Recorded {meta['generated_at']}, commit `{meta['commit']}`.",
         "",
-        "**This is the number query understanding has to beat.** Taken before any of it",
-        "exists, so the comparison later is a measurement rather than a reconstruction.",
+        *(
+            [
+                "**Query understanding is ON.** Compare against `BASELINE.md`, which is the",
+                "same corpus and gold set with stage 1 disabled.",
+            ]
+            if stage1_on
+            else [
+                "**This is the number query understanding has to beat.** Taken before any of it",
+                "exists, so the comparison later is a measurement rather than a reconstruction.",
+            ]
+        ),
         "",
         "## What was measured",
         "",
@@ -376,9 +390,13 @@ def render(metrics: Metrics, meta: dict) -> str:
             "",
             "## Stage 1 calls skipped",
             "",
-            f"**{spent} generate calls for {len(metrics.outcomes)} queries.** The free tier "
-            "allows 20 a day, so this run fits in one day's budget; a run without skipping "
-            "does not.",
+            f"**{spent} stage 1 calls for {len(metrics.outcomes)} queries, cold.** The free "
+            "tier allows 20 generate requests a day, so a cold run fits in one day's budget; "
+            f"a run without skipping needs {len(metrics.outcomes)} and does not.",
+            "",
+            "Cold is the number that matters for planning. A warm cache serves most of these "
+            "rows for free, so the calls actually issued by any given run may be far fewer — "
+            "which is why this says *required*, not *spent*.",
             "",
             "Skipped means the query carried no source-type word, no sender and no date, so "
             "stage 1 had nothing to extract. Skipping cannot improve a result — it can only "
@@ -539,7 +557,8 @@ async def run(
                 f"  stage 1 skipped on {len(skipped)}/{len(metrics.outcomes)} queries "
                 f"(no filterable signal): {sorted(o.row.id for o in skipped)}"
             )
-            print(f"  generate calls spent: {len(metrics.outcomes) - len(skipped)}")
+            # Required, not spent: a warm cache serves most rows without an API call.
+            print(f"  stage 1 calls required (cold): {len(metrics.outcomes) - len(skipped)}")
         if stage1 and failures:
             # Against the rows where stage 1 actually RAN. Counting skips as successes
             # would let a total outage look partial and slip past this gate.

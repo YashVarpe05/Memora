@@ -3,6 +3,12 @@
 **Predictions recorded before the heuristic exists.** Nothing in this file was written
 after seeing a result.
 
+> **Measured 2026-08-25. Result in `docs/PHASE3C.md`.** The skip/run predictions all held.
+> **All three predicted harms broke** — q005 and q015 because the pinned model extracts
+> nothing for them at all, so there was never a filter to lose, and q011 because the answer
+> ranks first without the filter it does lose. The skip was kept, for reproducibility rather
+> than for the ceiling gain.
+
 ## Two corrections to the numbers that motivated this phase
 
 Both were found while preparing the predictions, and both weaken the case for the option
