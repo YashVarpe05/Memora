@@ -2,7 +2,6 @@ import { ArrowUp, Square } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import { DegradedBanner } from '@/components/DegradedBanner';
 import { SUGGESTED_QUERIES } from '@/mocks/answers';
 
 import { MessageBubble } from './MessageBubble';
@@ -36,24 +35,6 @@ function EmptyState({ onPick }: { onPick: (q: string) => void }) {
 export function ChatView() {
   const { messages, isStreaming, send, stop } = useChat();
   const [draft, setDraft] = useState('');
-  const [degraded, setDegraded] = useState<string | null>(null);
-
-  // Polled from readiness rather than probed, because asking the model whether quota
-  // remains would spend the quota being asked about.
-  useEffect(() => {
-    const controller = new AbortController();
-    const check = () =>
-      fetch('/api/health/ready', { signal: controller.signal })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((body) => setDegraded(body?.degraded_message ?? null))
-        .catch(() => {});
-    check();
-    const timer = setInterval(check, 30_000);
-    return () => {
-      controller.abort();
-      clearInterval(timer);
-    };
-  }, []);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -67,9 +48,6 @@ export function ChatView() {
 
   return (
     <div className="mx-auto flex h-full max-w-2xl flex-col px-4">
-      <div className="pt-3">
-        <DegradedBanner message={degraded} />
-      </div>
       <div className="flex flex-1 flex-col gap-6 pb-4">
         {messages.length === 0 ? (
           <EmptyState onPick={submit} />

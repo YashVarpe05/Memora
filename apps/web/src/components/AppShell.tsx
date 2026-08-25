@@ -1,4 +1,4 @@
-import { Camera, Clock, MessageCircleQuestion, Settings } from 'lucide-react';
+import { Camera, Clock, MessageCircleQuestion, Search, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
@@ -7,6 +7,7 @@ import { Routes } from '@memora/core';
 import { cn } from '@/lib/utils';
 
 const TABS = [
+  { to: Routes.Search, label: 'Find', Icon: Search },
   { to: Routes.Ask, label: 'Ask', Icon: MessageCircleQuestion },
   { to: Routes.Capture, label: 'Capture', Icon: Camera },
   { to: Routes.Timeline, label: 'Timeline', Icon: Clock },
@@ -48,7 +49,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <div className="flex h-14 items-center gap-2">
           <span className="text-base font-semibold tracking-tight">Memora</span>
           <span className="hidden text-xs text-ink-faint sm:inline">
-            phase 5 shell &middot; mocked responses
+            layer one &middot; live
           </span>
         </div>
         <nav className="hidden items-center gap-1 sm:flex">

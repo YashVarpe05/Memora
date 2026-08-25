@@ -10,6 +10,8 @@ export interface Navigator {
 
 export const Routes = {
   Home: '/',
+  /** Layer one, and the product. You describe a document, you get the document. */
+  Search: '/search',
   Ask: '/ask',
   Capture: '/capture',
   Timeline: '/timeline',
