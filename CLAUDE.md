@@ -142,6 +142,12 @@ you demo it believing it works.
 ## Working style
 - Commit often. Write decisions to docs/ — context gets compacted and lossy.
 - Run the gold-set eval after any retrieval change.
+- **A day's remaining budget is not the day's budget.** `generate_content` is ~20/day/model
+  and resets at midnight Pacific (~12:30 IST). Every budget calculation starts by counting
+  what today has already spent, not by assuming 20 — count the cached gold rows for the
+  pinned model, since each one is a call already made. The phase-3d plan costed 5 + 13 = 18
+  against a ceiling that already carried 16, and step 1 fitting was luck rather than
+  arithmetic.
 
 ## When in doubt
 
