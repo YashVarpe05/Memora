@@ -74,9 +74,10 @@ export function UnderstoodChips({
     // Distinct from a skip, deliberately. Something went wrong.
     return (
       <Shell>
-        <TriangleAlert className="size-3 text-warn" aria-hidden />
+        <TriangleAlert className="mt-0.5 size-3 shrink-0 text-warn" aria-hidden />
         <span className="text-warn">
-          could not read your description{detail ? ` — ${detail.split('.')[0]}` : ''}
+          could not read your description, so these are plain-similarity results and may be
+          less precise{detail ? ` — ${detail.split('.')[0]}` : ''}
         </span>
       </Shell>
     );

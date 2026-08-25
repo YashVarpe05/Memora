@@ -64,7 +64,13 @@ export function SearchView() {
           />
         )}
 
-        <DegradedBanner message={search.degradedMessage} />
+        {/*
+          One message per screen. The chip explains this search and the banner explains
+          the process; once the chip has resolved it is more specific and more current,
+          so the banner is redundant when stage 1 failed and noise when it was skipped.
+          It stays only while the outcome is still unknown.
+        */}
+        {search.stage1 === 'pending' && <DegradedBanner message={search.degradedMessage} />}
 
         {search.status === 'idle' && (
           <div className="flex flex-col gap-3 pt-6">
