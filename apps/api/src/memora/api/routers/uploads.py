@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from memora.api.deps import CurrentUserDep, DbDep
 from memora.db.models.chunk import Chunk
 from memora.repositories.chunk import ChunkRepository
+from memora.repositories.image_embedding import ImageEmbeddingRepository
 from memora.repositories.memory import MemoryRepository
 from memora.services.chunking import (
     TiktokenCounter,
@@ -30,6 +31,11 @@ from memora.services.extraction import (
     image_mime,
     is_pdf,
     text_kind,
+)
+from memora.services.image_embedding import (
+    ImageEmbedder,
+    ImageEmbeddingUnavailable,
+    build_image_embedder,
 )
 from memora.services.masking import mask_all
 from memora.services.ocr import OcrClient, OcrUnavailable, build_ocr_client
@@ -60,6 +66,10 @@ def get_counter() -> TokenCounter:
     return TiktokenCounter()
 
 
+def get_image_embedder() -> ImageEmbedder:
+    return build_image_embedder()
+
+
 def get_ocr() -> OcrClient:
     return build_ocr_client()
 
@@ -71,6 +81,7 @@ def get_blob_store() -> BlobStore:
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
 CounterDep = Annotated[TokenCounter, Depends(get_counter)]
 OcrDep = Annotated[OcrClient, Depends(get_ocr)]
+ImageEmbedderDep = Annotated[ImageEmbedder, Depends(get_image_embedder)]
 BlobStoreDep = Annotated[BlobStore, Depends(get_blob_store)]
 DocumentUpload = Annotated[UploadFile, File(...)]
 
@@ -83,6 +94,7 @@ async def upload_document(
     embedder: EmbedderDep,
     counter: CounterDep,
     ocr: OcrDep,
+    image_embedder: ImageEmbedderDep,
     blobs: BlobStoreDep,
 ) -> UploadResponse:
     data = await file.read()
@@ -153,7 +165,13 @@ async def upload_document(
 
     chunker = chunk_per_block if extracted.per_block else chunk_blocks
     text_chunks = chunker(blocks, title=title, counter=counter)
-    if not text_chunks:
+
+    # An image with no text used to be rejected here, because it was unsearchable: no
+    # chunk, no vector, not ranked badly but absent. CLIP changes that - the picture
+    # itself becomes the index - so the rule is now "reject only if there is NEITHER
+    # text NOR an image embedding".
+    can_embed_image = source_type == "image" and image_embedder is not None
+    if not text_chunks and not can_embed_image:
         detail = (
             "No text found in this image."
             if source_type == "image"
@@ -197,6 +215,25 @@ async def upload_document(
         text=" ".join(b.text for b in extracted.blocks[:5]),
     )
 
+    # The image vector, before the row so a CLIP failure does not leave a memory with
+    # neither text nor a picture index - which would be a document nothing can find.
+    image_vector: list[float] | None = None
+    image_model = ""
+    if source_type == "image" and image_embedder is not None:
+        try:
+            image_vector, image_model = await image_embedder.embed_image(data, filename)
+        except ImageEmbeddingUnavailable:
+            # Degrade, do not fail. A document with text is still fully searchable
+            # without its picture vector; one without text is not, and that case is
+            # caught below.
+            image_vector = None
+
+    if not text_chunks and image_vector is None:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
+            "No text found in this image, and it could not be indexed visually.",
+        )
+
     memory = await memories.create(
         source_type=source_type,
         title=title,
@@ -228,6 +265,11 @@ async def upload_document(
             )
         ],
     )
+
+    if image_vector is not None:
+        await ImageEmbeddingRepository(session, user_id).add(
+            memory.id, image_vector, image_model
+        )
 
     # Counted by type only, never by value.
     masked_count = sum(len(m.detections) for m in [*masked_text, *masked_prefix])

@@ -224,6 +224,11 @@ export interface components {
         /** SearchRequest */
         SearchRequest: {
             /**
+             * Images
+             * @default true
+             */
+            images: boolean;
+            /**
              * Limit
              * @default 10
              */
@@ -291,7 +296,7 @@ export interface components {
             /** Filename */
             filename: string;
             /** Matched Chunk Id */
-            matched_chunk_id: string;
+            matched_chunk_id: string | null;
             /** Memory Id */
             memory_id: string;
             /** Page */

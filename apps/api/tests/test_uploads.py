@@ -81,15 +81,58 @@ async def test_image_upload_is_ocred_and_stored(api, doubles):
     assert doubles["ocr"].calls == ["aadhaar.png"]
 
 
-async def test_image_with_no_text_is_rejected(api, doubles):
+async def test_an_image_with_no_text_is_now_indexed_visually(api, doubles):
+    """The rule changed when CLIP landed, and this test changed with it.
+
+    A text-free image used to be rejected because it was unsearchable: no chunk, no
+    vector, absent rather than badly ranked. The picture is now the index, so the rule is
+    "reject only if there is NEITHER text NOR an image embedding".
+    """
     doubles["ocr"].text = ""
+
+    response = await api.post(
+        "/uploads", files={"file": ("photo.png", make_png(), "image/png")}
+    )
+
+    assert response.status_code == 201, response.text
+    assert doubles["image_embedder"].images == ["photo.png"]
+
+
+async def test_an_image_with_neither_text_nor_clip_is_still_rejected(api, app, doubles):
+    """Storing a document nothing can ever find is worse than refusing it."""
+    from memora.api.routers import uploads as uploads_router
+
+    from support import FakeImageEmbedder
+
+    doubles["ocr"].text = ""
+    app.dependency_overrides[uploads_router.get_image_embedder] = lambda: FakeImageEmbedder(
+        fails=True
+    )
 
     response = await api.post(
         "/uploads", files={"file": ("blank.png", make_png(), "image/png")}
     )
 
     assert response.status_code == 422
-    assert "No text found" in response.json()["detail"]
+    assert "could not be indexed visually" in response.json()["detail"]
+
+
+async def test_a_text_bearing_image_survives_clip_being_down(api, app, doubles):
+    """Degrade, do not fail. Text alone still makes the document fully searchable."""
+    from memora.api.routers import uploads as uploads_router
+
+    from support import FakeImageEmbedder
+
+    doubles["ocr"].text = "government of india aadhaar identity"
+    app.dependency_overrides[uploads_router.get_image_embedder] = lambda: FakeImageEmbedder(
+        fails=True
+    )
+
+    response = await api.post(
+        "/uploads", files={"file": ("id.png", make_png(), "image/png")}
+    )
+
+    assert response.status_code == 201, response.text
 
 
 async def test_image_upload_fails_loudly_when_ocr_is_down(api, app, doubles):

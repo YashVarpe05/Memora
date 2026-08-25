@@ -18,7 +18,13 @@ from pydantic import BaseModel, Field
 from memora.api.deps import CurrentUserDep, DbDep
 from memora.config import get_settings
 from memora.repositories.chunk import ChunkRepository
+from memora.repositories.image_embedding import ImageEmbeddingRepository, ImageHit
 from memora.services.embedding import Embedder, build_embedder
+from memora.services.image_embedding import (
+    ImageEmbedder,
+    ImageEmbeddingUnavailable,
+    build_image_embedder,
+)
 from memora.services.masking import mask_identifiers
 from memora.services.query_signal import has_filterable_signal, why
 from memora.services.query_understanding import (
@@ -28,7 +34,7 @@ from memora.services.query_understanding import (
     passthrough,
 )
 from memora.services.retrieval import has_weak_evidence
-from memora.services.search import Boosts, search_documents
+from memora.services.search import Boosts, fuse_results, search_documents
 from memora.services.stage1_health import describe, health
 
 router = APIRouter(tags=["search"])
@@ -47,6 +53,9 @@ class SearchRequest(BaseModel):
     # is the only way to see what a skipped row would have got. Costs a call per skipped
     # query, so it is off by default and belongs to the harness, not to real use.
     stage1_skip: bool = True
+    # Visual search. Off makes the ablation arm measurable against the text-only
+    # numbers every report before this one recorded.
+    images: bool = True
 
 
 class SearchResult(BaseModel):
@@ -59,7 +68,7 @@ class SearchResult(BaseModel):
     # Before stage 1's boosts, so a ranking can be explained rather than trusted.
     raw_score: float
     snippet: str
-    matched_chunk_id: str
+    matched_chunk_id: str | None
     page: int | None
     byte_size: int
     thumbnail_url: str | None
@@ -109,7 +118,12 @@ def get_query_understanding() -> QueryUnderstanding:
     return CachingQueryUnderstanding(inner, model=settings.gemini_model)
 
 
+def get_image_embedder() -> ImageEmbedder:
+    return build_image_embedder()
+
+
 EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
+ImageEmbedderDep = Annotated[ImageEmbedder, Depends(get_image_embedder)]
 StageOneDep = Annotated[QueryUnderstanding, Depends(get_query_understanding)]
 
 
@@ -120,6 +134,7 @@ async def search(
     user_id: CurrentUserDep,
     embedder: EmbedderDep,
     stage_one: StageOneDep,
+    image_embedder: ImageEmbedderDep,
 ) -> SearchResponse:
     filters: QueryFilters = passthrough(payload.query)
     stage1_ms: int | None = None
@@ -164,6 +179,25 @@ async def search(
         lambda n: chunks.search_hits(query_vector, n), payload.limit, boosts
     )
     ranked = outcome.results
+
+    # The image list, fused in by RANK. Some documents have no text at all - a photo of
+    # people yields an empty OCR string - so the text list cannot contain them at any
+    # quality. Their vector is CLIP's, on a scale where 0.28 is strong, and it is never
+    # compared with the text similarities. See services/fusion.py.
+    image_hits: list[ImageHit] = []
+    if payload.images:
+        try:
+            clip_vector, _ = await image_embedder.embed_text(payload.query)
+            image_hits = await ImageEmbeddingRepository(session, user_id).search(
+                clip_vector, payload.limit * 2
+            )
+        except ImageEmbeddingUnavailable:
+            # Degrade to text-only. Visual search being down must not stop a search that
+            # the text index can answer perfectly well.
+            image_hits = []
+
+    if image_hits:
+        ranked = fuse_results(ranked, image_hits, payload.limit)
 
     # Raw similarity, not boosted - a filter guess must not talk the system out of
     # refusing. See boosted_score in services/search.py.
@@ -214,7 +248,7 @@ async def search(
                 score=r.score,
                 raw_score=r.raw_score,
                 snippet=r.snippet,
-                matched_chunk_id=str(r.matched_chunk_id),
+                matched_chunk_id=str(r.matched_chunk_id) if r.matched_chunk_id else None,
                 page=r.page,
                 byte_size=r.byte_size,
                 thumbnail_url=(

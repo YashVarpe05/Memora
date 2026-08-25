@@ -10,10 +10,14 @@ someone adds a "summarise the results" step.
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from memora.repositories.chunk import ChunkHit
+
+if TYPE_CHECKING:
+    from memora.repositories.image_embedding import ImageHit
 
 # --- the fetch window -------------------------------------------------------------
 #
@@ -129,7 +133,9 @@ class DocumentResult:
     # Before stage 1's boosts. Kept so a result can be explained.
     raw_score: float
     snippet: str
-    matched_chunk_id: UUID
+    # None when the document was found by its picture alone: a photo with no text
+    # has no chunk to point at, which is the whole reason visual search exists.
+    matched_chunk_id: UUID | None
     page: int | None
     byte_size: int
     has_thumbnail: bool
@@ -235,3 +241,58 @@ def to_results(scored: list[tuple[ChunkHit, float]]) -> list[DocumentResult]:
         )
         for index, (hit, score) in enumerate(scored, start=1)
     ]
+
+
+def fuse_results(
+    text_results: list[DocumentResult],
+    image_hits: list[ImageHit],
+    limit: int,
+) -> list[DocumentResult]:
+    """Merge the image list into the text list by rank, and renumber.
+
+    Both inputs are already ranked. Only their ORDER crosses into fusion - the CLIP
+    similarity never meets the text similarity, because there is no expression in which
+    both appear. See services/fusion.py for why that matters.
+
+    A document found only by CLIP has no chunk, so it has no snippet: it is a photo with
+    no text, which is the entire reason this path exists. It carries an empty snippet and
+    the UI says so, rather than showing a blank card.
+    """
+    from memora.services.fusion import reciprocal_rank_fusion
+
+    by_id = {result.memory_id: result for result in text_results}
+    image_by_id = {hit.memory_id: hit for hit in image_hits}
+
+    fused = reciprocal_rank_fusion(
+        text_order=[r.memory_id for r in text_results],
+        image_order=[h.memory_id for h in image_hits],
+    )
+
+    merged: list[DocumentResult] = []
+    for position, doc in enumerate(fused[:limit], start=1):
+        existing = by_id.get(doc.memory_id)
+        if existing is not None:
+            merged.append(replace(existing, rank=position))
+            continue
+
+        hit = image_by_id[doc.memory_id]
+        merged.append(
+            DocumentResult(
+                rank=position,
+                memory_id=hit.memory_id,
+                title=hit.title,
+                filename=hit.filename,
+                source_type=hit.source_type,
+                # The RRF score, NOT a similarity. Deliberately not hit.similarity:
+                # putting a CLIP 0.28 in the same column as a text 0.65 is exactly the
+                # scale collision this design exists to prevent.
+                score=round(doc.score, 6),
+                raw_score=round(doc.score, 6),
+                snippet="",
+                matched_chunk_id=None,
+                page=None,
+                byte_size=hit.byte_size,
+                has_thumbnail=hit.has_thumbnail,
+            )
+        )
+    return merged

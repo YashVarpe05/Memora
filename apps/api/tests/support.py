@@ -146,3 +146,42 @@ class FakeStageOne:
             before=self.filters.get("before"),
             raw=dict(self.filters) or {},
         )
+
+
+CLIP_DIMS = 512
+
+
+class FakeImageEmbedder:
+    """Canned CLIP. Same image bytes -> same vector, so fusion is testable offline.
+
+    Deliberately 512-dimensional. The text embedder is 768, and a test double that
+    returned the wrong width would let a dimension mixup reach pgvector instead of
+    failing here.
+    """
+
+    def __init__(self, fails: bool = False) -> None:
+        self.fails = fails
+        self.images: list[str] = []
+        self.texts: list[str] = []
+
+    def _vector(self, seed: bytes) -> list[float]:
+        digest = hashlib.sha256(seed).digest()
+        raw = [(digest[i % len(digest)] - 128) / 128.0 for i in range(CLIP_DIMS)]
+        norm = math.sqrt(sum(v * v for v in raw)) or 1.0
+        return [v / norm for v in raw]
+
+    async def embed_image(self, data: bytes, filename: str = "upload"):
+        from memora.services.image_embedding import ImageEmbeddingUnavailable
+
+        if self.fails:
+            raise ImageEmbeddingUnavailable("clip is down")
+        self.images.append(filename)
+        return self._vector(data), "fake-clip/test"
+
+    async def embed_text(self, text: str):
+        from memora.services.image_embedding import ImageEmbeddingUnavailable
+
+        if self.fails:
+            raise ImageEmbeddingUnavailable("clip is down")
+        self.texts.append(text)
+        return self._vector(text.encode()), "fake-clip/test"

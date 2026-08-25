@@ -93,7 +93,14 @@ def blob_store(tmp_path):
 
 @pytest.fixture
 def doubles():
-    from support import FakeCounter, FakeEmbedder, FakeGenerator, FakeOcr, FakeStageOne
+    from support import (
+        FakeCounter,
+        FakeEmbedder,
+        FakeGenerator,
+        FakeImageEmbedder,
+        FakeOcr,
+        FakeStageOne,
+    )
 
     return {
         "embedder": FakeEmbedder(),
@@ -101,6 +108,7 @@ def doubles():
         "generator": FakeGenerator(),
         "ocr": FakeOcr(),
         "stage_one": FakeStageOne(),
+        "image_embedder": FakeImageEmbedder(),
     }
 
 
@@ -112,6 +120,9 @@ async def api(app, db, doubles, test_user_id, blob_store):
     app.dependency_overrides[uploads_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[uploads_router.get_counter] = lambda: doubles["counter"]
     app.dependency_overrides[uploads_router.get_ocr] = lambda: doubles["ocr"]
+    app.dependency_overrides[uploads_router.get_image_embedder] = (
+        lambda: doubles["image_embedder"]
+    )
     app.dependency_overrides[uploads_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[files_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[chat_router.get_embedder] = lambda: doubles["embedder"]

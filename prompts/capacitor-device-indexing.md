@@ -134,6 +134,63 @@ hours of CPU, and embedding every result is thousands of API calls.
    at which point they become the thing that makes the gallery searchable. **These two phases
    compound: CLIP is what makes indexing 8,000 photos worth the battery.**
 
+## The CLIP-on-mobile decision, made before anything depends on it
+
+The OCR container with CLIP is **3.19GB**, and that image cannot go on a phone. But the
+number has to be broken down before it decides anything, because it is mostly not the model:
+
+| component | size |
+|---|---|
+| **torch** | **750 MB** — the runtime |
+| **CLIP ViT-B-32 weights, fp32** | **578 MB** |
+| sympy, numpy, networkx, timm (all torch deps) | ~155 MB |
+| tesseract, python base, pip artifacts | the rest |
+
+Measured inside the running container, not estimated. **The model is 578 MB; the other
+2.6 GB is a server-side Python stack that would never ship to a device anyway.** So
+"3.19GB cannot go on a phone" is true and does not imply "CLIP cannot go on a phone".
+
+### The three options, and the one to take
+
+**A — CLIP stays server-side.** Simplest, and it is what exists today. But it **weakens the
+argument that chose CLIP in the first place**: the reason to prefer it over a hosted vision
+model was that the image never leaves the machine. If the phone uploads every photo to a
+server for embedding, the image leaves the device — and for a phone-first product, "the
+machine" is the phone. The privacy claim would have to be scoped to "images leave the device
+only to reach your own backend", which is materially weaker and depends on who runs the
+backend.
+
+**B — quantised ONNX on-device. Recommended.** Export the two towers to ONNX and quantise to
+int8: roughly **150 MB of weights** plus **~10 MB of onnxruntime-mobile**, against 578 MB
+fp32 and 750 MB of torch. That is a large app but an ordinary one, and it keeps the claim
+intact and literal: *the photo is embedded on the phone and never leaves it*.
+
+Text and image towers are separable, which helps: the **text** tower alone (~60 MB int8)
+serves queries, and the **image** tower (~90 MB int8) is only needed while indexing. They
+can ship together or the image tower can be fetched on first scan.
+
+**C — server-side with the claim scoped honestly.** The fallback if B proves too slow on
+real hardware. It is acceptable only if the report says plainly which images leave the device
+and to where. It must not be arrived at by accident.
+
+### What has to be verified before committing to B
+
+Nothing here is measured on a phone, and this project's own history says that matters —
+PaddleOCR installed cleanly and could not execute, on two platforms.
+
+1. **int8 accuracy.** Quantisation costs some retrieval quality. q019 scores 0.348 fp32
+   against a 0.219 runner-up; that margin should survive int8, but it has to be checked
+   against the gold set rather than assumed.
+2. **Per-image latency on a mid-range Android CPU.** Server CPU was ~130 ms for a small
+   image and ~1.1 s for a 10.8 MB camera original. A phone will be slower, and 8,000 photos
+   at even 500 ms is over an hour — which is what the WorkManager charging constraint above
+   is for.
+3. **Thermal behaviour.** Sustained inference throttles. Batch size and pacing matter more
+   than raw speed.
+
+**Until B is verified, the server-side path stays.** The decision recorded here is the
+*target*, not a claim about what is built.
+
 ## Sizing, honestly
 
 **This does not fit alongside everything else, and pretending otherwise is how a final-year

@@ -187,6 +187,11 @@
       },
       "SearchRequest": {
         "properties": {
+          "images": {
+            "default": true,
+            "title": "Images",
+            "type": "boolean"
+          },
           "limit": {
             "default": 10,
             "maximum": 50.0,
@@ -355,8 +360,15 @@
             "type": "string"
           },
           "matched_chunk_id": {
-            "title": "Matched Chunk Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Chunk Id"
           },
           "memory_id": {
             "title": "Memory Id",
