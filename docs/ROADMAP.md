@@ -58,6 +58,28 @@ Reclaimed time that gets refilled with scope was never reclaimed.
 | 6 | Gmail connector | Live ingest. OAuth stays in Testing mode with test users |
 | 7 | Layer two + audio | Streaming chat, citation hover, span highlight, Whisper, arq |
 
+### Two phases promoted out of "future work"
+
+Both were optional. Both are now **core**, because each one decides whether a sentence in
+`PRODUCT.md` is true. Numbered separately because their position in the order is a
+scheduling decision that has not been made yet — see the sizing note below.
+
+| # | Phase | Done when | Plan |
+|---|---|---|---|
+| C | **CLIP image embeddings** | A text query matches a document by what it looks like. The three text-free corpus files become findable. `document_identity` has a path that does not depend on OCR | `prompts/clip-image-embeddings.md` |
+| D | **Capacitor + device indexing** | The app enumerates device storage and indexes what it finds, without the user uploading anything | `prompts/capacitor-device-indexing.md` |
+
+**Why Capacitor stopped being optional.** It sat in "cut in this order" as *native app*,
+last. That was correct when the product was "upload your documents and search them". It is
+wrong now that the product is "search the files already on your phone", because **a PWA
+cannot enumerate device storage** — browsers sandbox it deliberately, and no web API exposes
+a gallery or a Downloads folder for scanning. Without a native shell the product sentence is
+false. That is a platform boundary, not an engineering gap.
+
+**Why CLIP stopped being optional.** Hero query 7, "the group photo", has no text anywhere.
+OCR returns an empty string, so no chunk and no vector are ever created and the file is not
+ranked badly — it is absent. Three corpus files are already in this state.
+
 ### Parallel frontend track — starts when phase 2's contract lands
 
 Ranked result list, thumbnails, in-app viewer (page a PDF, zoom an image), download.

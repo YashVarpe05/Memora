@@ -56,10 +56,17 @@ matters. Queries 1–5 are layer one: **success is the correct file at rank 1.**
 | 4 | "the screenshot with the database error" | Remembered by **how it looked**. The text exists only inside pixels, and the description is approximate. |
 | 5 | "my 10th marksheet", with three marksheets stored | **Disambiguation.** Several documents plausibly match. The right one has to be first, not somewhere in a pile. |
 | 6 | "find my passport", never stored | **Must refuse.** See the refusal rule below. |
+| 7 | "the group photo" | **No text exists anywhere.** OCR returns an empty string, so there is nothing to embed and nothing to match. This query cannot work through the text pipeline at any quality — it needs the image itself to be searchable. Three corpus files are already invisible for exactly this reason. |
 
 Layer two keeps its own case: **"what did HR say during the internship interview"** — an
 answer about content, with citations, only after the user asks a question rather than
 searches for a thing.
+
+**Query 7 is the one that breaks the architecture rather than stressing it.** Queries 1–6
+are hard because the description has to be understood. Query 7 is hard because the pipeline
+has no representation of the document at all: a photo of people has no text, so OCR yields
+nothing, so no chunk exists, so no vector exists. It is not ranked badly — it is absent.
+Fixing it requires embedding the *image*, which is a second modality, not a better filter.
 
 **The insight these encode:** most personal-document queries are *metadata and identity
 queries wearing semantic clothing*. Retrieval must understand the description and filter
@@ -217,6 +224,47 @@ framing for this project than chat: it replaces a judged score with a counted on
 
 ---
 
+## Two core requirements that are not yet built
+
+Both are **core**, not future work. Each makes a sentence in this document true or false.
+
+### 1. Files are discovered on the device, not uploaded
+
+The product sentence is *"it searches the files already on your phone."* Today the system
+searches **files you have uploaded to it**, which is a different and much weaker product —
+it asks the user to gather the documents first, and gathering is the problem being solved.
+
+**A PWA cannot do this, and no amount of engineering changes that.** Browsers sandbox
+storage deliberately: there is no web API that enumerates a phone's Downloads folder or
+gallery, watches for new files, or indexes in the background. The File System Access API
+covers user-picked handles on desktop, not device-wide scanning, and is not the same thing.
+This is a platform boundary, not a missing feature.
+
+**Therefore Capacitor moves from optional stretch to required.** A native shell gets
+`READ_MEDIA_*` permissions, filesystem enumeration, and background execution. Without it,
+"already on your phone" is not a claim this project can make.
+
+`PORTABILITY.md`'s discipline pays for itself exactly here: business logic already lives in
+`apps/api` and `packages/core`, and platform capabilities already sit behind interfaces, so
+the shell change is an implementation of existing interfaces rather than a rewrite. That was
+the point of the constraint.
+
+### 2. Visual search, because some documents have no text
+
+Hero query 7 has no text-pipeline path at any quality (see above). Three corpus files are
+already unfindable by any query for this reason, and that is recorded as a limitation in
+every measurement report so far.
+
+It also matters for the flagship. **`document_identity` has no working path today**:
+Tesseract reads zero words off a laminated college ID card, measured, not assumed. Visual
+search gives that query a second route that does not depend on OCR succeeding on a
+reflective plastic surface.
+
+The requirement is that a text query can match a document by **what it looks like**. See
+`prompts/clip-image-embeddings.md` for how.
+
+---
+
 ## What this is NOT
 
 - Not a note-taking app. Memora doesn't ask users to write anything.
@@ -245,6 +293,28 @@ Defensible claims:
    layer-one retrieval that never sends a document to a model, and identifier masking
    before embedding. "The Aadhaar number never leaves the device" is a claim an examiner
    can watch being demonstrated.
+
+   **State this in three layers, and do not collapse them.** The claim is strong because it
+   is precise, and it gets weaker the moment it is rounded up to "nothing leaves the
+   device".
+
+   1. **Documents never leave.** Enforced architecturally by rule 1, tested by
+      `test_no_llm_in_layer_one.py`. This is the strong claim and it holds.
+   2. **The query does leave.** Stage 1 sends the user's own words to a hosted model, and
+      the query is the personal part — *"the mail yash sent to rutuja"* names a person and
+      a relationship; *"my college fee receipt"* names a document the user holds. On
+      Google's **free tier**, the terms permit human reviewers to read API input and use it
+      to improve products. On the **paid tier** they forbid both. So the honest form is
+      "queries leave under terms that forbid review and training", and it is only true if
+      the paid tier is actually taken. See `prompts/quota-ceiling-decision.md`.
+   3. **Fully-local stage 1 is future work, with a measured obstacle.** Running the
+      extractor on-device would stop the query leaving at all. `PHASE3.md` records why that
+      is not free: a weaker extractor (`gemini-flash-lite-latest`) scored Recall@1 0.789,
+      *below* the 0.842 achieved by using no extractor at all. A wrong filter is worse than
+      no filter, so a small local model is a real risk, not an obvious win.
+
+   Claiming layer 1 alone is accurate. Claiming layers 1–2 requires paying. Claiming layer 3
+   is claiming something not built.
 3. **Self-organizing archive** — document type, timeline and entity graph built without
    the user filing anything.
 
@@ -260,7 +330,13 @@ and screenshots with no text layer, so without OCR the flagship query returns no
 text. The roadmap has not yet been resequenced for this.
 
 If the schedule slips, cut in this order: reranking → query transformation → extra
-connectors → entity resolution → native app.
+connectors → entity resolution.
+
+**"native app" used to be at the end of that list and has been removed from it.** It was
+the right thing to cut when the product was "upload your documents and search them". It is
+not cuttable now that the product is "search the files already on your phone", because a
+PWA cannot enumerate device storage at all. Cutting it does not degrade the product; it
+changes which product this is.
 
 Never cut: **OCR**, Gmail connector, query understanding, ranked file results with viewer
 and download, per-owner isolation, the evaluation harness.
