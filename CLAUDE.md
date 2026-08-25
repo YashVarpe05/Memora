@@ -63,6 +63,12 @@ first test worth running - the highest-value one being that DegradedBanner rende
 already. Not built, because it was not asked for. Listed so the gap is a decision rather
 than an oversight.
 
+**A test run taken while the containers are down is not evidence.** DB-backed tests skip
+themselves when Postgres is unreachable and the suite still exits 0, so `243 passed` and
+`22 passed, 6 skipped` both look green. This has produced a false green twice. Check
+`docker compose ps` before believing a suite result, read the skip count rather than the
+exit code, and never cite a run whose container state is unknown.
+
 ## Retrieval rules (most important section)
 - Retrieval is TWO stages. Stage 1: LLM converts the question into filters + semantic_query
   + optional time-phrase to resolve. Stage 2: apply filters, THEN hybrid search inside them.
