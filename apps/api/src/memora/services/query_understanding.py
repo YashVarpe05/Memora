@@ -46,6 +46,11 @@ Guidance that matters:
 - **A scanned or printed email saved as a file is `pdf`, not `email`.** When a query says
   "mail" or "email", include BOTH `email` and `pdf`, because personal archives are full
   of emails saved as PDFs.
+- **A photograph or screenshot of a message, email or document is `image`, whatever the
+  content shows.** Judge the format of the FILE, not the subject of the query. "The message
+  X sent" and "the job they emailed" are often screenshots, so include `image` alongside
+  `chat` or `email` rather than instead of it. Personal archives are full of photographs
+  of other people's screens.
 - Relative dates resolve against the current date given below.
 - If you are unsure, return fewer constraints. An empty array is better than a wrong one.
 """

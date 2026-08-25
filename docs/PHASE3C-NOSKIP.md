@@ -197,7 +197,18 @@ consequence *here* only because the answer was already rank 1 on dense similarit
 corpus with more near-duplicate job postings, the same discard could cost the row. The
 honest claim is **"no measured harm", not "no harm"**.
 
-**A note on the budget.** This run took the day's successful generate calls to roughly 22,
-past the 20/day ceiling recorded in `PHASE3.md`, without a 429. Either that limit is wrong
-or it has changed. It is the number the whole throughput argument rests on, so it needs
-re-measuring rather than restating — flagged here, not fixed here.
+**A note on the budget, and its own correction.** This run took the day's successful
+generate calls to **21** — every gold row is now cached — against the 20/day ceiling in
+`PHASE3.md`, with no 429. That looked like evidence the ceiling was wrong, and it was
+written up here as such.
+
+**The next run disproved it within the hour.** The phase-3d attempt failed on all 13 calls
+with `RESOURCE_EXHAUSTED`. So the ceiling is real and sits at roughly 20–21; the apparent
+overshoot was counting slack, not headroom. The original note is left visible above rather
+than deleted, because "a number that looked wrong for an hour" is the same failure mode this
+project keeps finding, and the useful part is how quickly the next measurement caught it.
+
+**The guard caught it, for the second time on real data.** All 13 calls failed, the harness
+reported `stage 1 failed on 13/13` and **refused to write the file**. Without that, phase 3d
+would have produced 0.842 — the dense-only number — under a stage-1-with-the-fix label, and
+the conclusion would have been "the prompt fix changes nothing".

@@ -3,6 +3,20 @@
 **Predictions recorded before the prompt is changed.** Nothing here was written after
 seeing a result.
 
+> **Status 2026-08-25, 23:50 IST.**
+> **Step 1 ran and HELD completely** — see `docs/PHASE3C-NOSKIP.md`. All 21 rows identical
+> with stage 1 forced on. The skip costs nothing measurable.
+> **Step 2 is applied but UNMEASURED.** The prompt sentence is in
+> `services/query_understanding.py`; the run failed on all 13 calls with
+> `RESOURCE_EXHAUSTED` and the harness refused to write it. **Do not trust or demo the
+> extractor until `docs/PHASE3D.md` exists.**
+>
+> The budget arithmetic in this file was right about the order and wrong about the total.
+> Step 1 cost 5 as predicted, but the day already carried 16 calls from measuring phase 3c,
+> so 5 + 13 was never available *today* — the plan costed the two steps against a fresh
+> ceiling and the ceiling was not fresh. **A day's remaining budget is not the day's budget,
+> and this plan did not distinguish them.** Step 2 needs a full 13 on a clean day.
+
 ## The finding this fixes
 
 `PHASE3C.md` located the whole 0.947 → 0.842 regression in two rows, and both have the same
