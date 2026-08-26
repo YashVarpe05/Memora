@@ -159,3 +159,84 @@ def _fresh_stage1_health():
 
     stage1_health._health = stage1_health.Stage1Health()
     yield
+
+
+# ---------------------------------------------------------------------------
+# Double-usage probe.  Run with:  uv run pytest --double-usage
+#
+# Counts how often each test double is actually CALLED. A structural audit can only
+# prove a dependency is overridden; this proves the path it stands in for runs at all.
+#
+# It exists because the two are not the same. On 2026-08-26 the search router's CLIP
+# dependency was not overridden, so every test silently took the "CLIP unavailable"
+# branch and passed - hiding a refusal bug that made a hero query structurally
+# unreachable. The same probe then showed stage_one.extract being called 5 times across
+# the entire suite, because 72% of search-test queries carried no filterable signal and
+# the skip heuristic correctly skipped them. Nothing was broken. The coverage was simply
+# not there, and a green suite said nothing.
+#
+# A low count is not automatically a bug. It is a question worth asking.
+# ---------------------------------------------------------------------------
+
+_DOUBLE_CALLS: dict[str, int] = {}
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--double-usage",
+        action="store_true",
+        default=False,
+        help="report how many times each test double was called",
+    )
+
+
+@pytest.fixture(autouse=True)
+def _count_double_calls(request, doubles):
+    """Wraps every double method to count calls. Off unless --double-usage is passed,
+    so the normal suite pays nothing."""
+    if not request.config.getoption("--double-usage"):
+        yield
+        return
+
+    import inspect
+
+    def counted(fn, key):
+        if inspect.iscoroutinefunction(fn):
+            async def call_async(*args, **kwargs):
+                _DOUBLE_CALLS[key] = _DOUBLE_CALLS.get(key, 0) + 1
+                return await fn(*args, **kwargs)
+
+            return call_async
+
+        def call_sync(*args, **kwargs):
+            _DOUBLE_CALLS[key] = _DOUBLE_CALLS.get(key, 0) + 1
+            return fn(*args, **kwargs)
+
+        return call_sync
+
+    for label, double in doubles.items():
+        for name in dir(double):
+            if name.startswith("_"):
+                continue
+            attr = getattr(double, name)
+            if callable(attr):
+                try:
+                    setattr(double, name, counted(attr, f"{label}.{name}"))
+                except (AttributeError, TypeError):
+                    pass
+    yield
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if not config.getoption("--double-usage"):
+        return
+    terminalreporter.write_sep("=", "double usage")
+    if not _DOUBLE_CALLS:
+        terminalreporter.write_line("no doubles were called at all")
+        return
+    for key in sorted(_DOUBLE_CALLS, key=lambda k: -_DOUBLE_CALLS[k]):
+        terminalreporter.write_line(f"  {_DOUBLE_CALLS[key]:>6}x  {key}")
+    terminalreporter.write_line("")
+    terminalreporter.write_line(
+        "A low count means that path barely runs. Ask why before trusting it."
+    )

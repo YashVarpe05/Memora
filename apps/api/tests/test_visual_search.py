@@ -94,3 +94,61 @@ async def test_a_document_found_by_both_lists_outranks_one_found_by_either(api, 
     assert body["results"][0]["memory_id"] == both, (
         "a document matching on text and picture must outrank one matching on picture alone"
     )
+
+
+async def test_a_clip_only_hit_is_not_refused_for_having_no_text_score(api, doubles):
+    """Regression: this exact case was refused, always.
+
+    Refusal read `outcome.raw_top_score` - the TEXT top score - which is 0.0 for a
+    document with no text at all. A photo found only by CLIP was therefore refused
+    however strong the visual match, and hero query 7 was unreachable by construction.
+    Every test passed, because the search router's CLIP dependency was not overridden
+    and fusion never ran.
+
+    Refusal now asks both indexes on their own scales.
+    """
+    memory_id = await upload_photo(api, doubles, name="balcony.png")
+
+    body = (await api.post("/search", json={"query": "balcony.png"})).json()
+
+    assert body["refused"] is False, (
+        "a document with a strong visual match and zero text score was refused - "
+        "refusal is reading the text scale for a document that has no text"
+    )
+    assert body["results"][0]["memory_id"] == memory_id
+    assert body["results"][0]["raw_score"] > 0
+
+
+async def test_a_text_only_document_still_works_with_visual_search_on(api, doubles):
+    """The other side of the same boundary: text-only retrieval must be untouched."""
+    doubles["ocr"].text = "quarterly reimbursement policy details and limits"
+    upload = await api.post(
+        "/uploads", files={"file": ("policy.png", make_png(), "image/png")}
+    )
+    memory_id = upload.json()["memory_id"]
+
+    body = (
+        await api.post("/search", json={"query": "reimbursement policy details"})
+    ).json()
+
+    assert body["results"][0]["memory_id"] == memory_id
+    assert body["results"][0]["snippet"], "a text match must still carry its snippet"
+
+
+async def test_nothing_matching_either_index_is_still_refused(api, doubles):
+    """Adding a second index must not make refusal unreachable.
+
+    q022 and q023 exist as visual absence controls precisely because CLIP returns a
+    nearest neighbour for every query, always. If any visual hit counted as evidence,
+    the system could never say no again.
+    """
+    await upload_photo(api, doubles, name="balcony.png")
+
+    body = (
+        await api.post("/search", json={"query": "zxqw plorbin frantacular"})
+    ).json()
+
+    assert body["refused"] is True, (
+        "a query matching neither index must still refuse - otherwise the visual "
+        "list makes refusal structurally impossible"
+    )

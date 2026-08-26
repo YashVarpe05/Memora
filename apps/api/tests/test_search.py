@@ -1,4 +1,17 @@
-"""POST /search - ranked documents, not chunks."""
+"""POST /search - ranked documents, not chunks.
+
+Queries here deliberately carry a filterable signal - a source type, a sender, or a date
+- so the stage 1 path actually executes. Earlier versions used strings like "dashboard"
+and "anything", which query_signal correctly skips, so 72% of these tests measured the
+dense-only path while appearing to cover two-stage retrieval. The heuristic was right;
+the queries were not the kind a person types. Found with `pytest --double-usage`.
+
+Signal words, not filler. FakeEmbedder is bag-of-words and normalises by vector length,
+so "the photo of my aadhaar card" scores 0.365 against a document "aadhaar card ..."
+while "the scanned aadhaar card" scores 0.447 - padding a query with articles pushes it
+under MIN_SIMILARITY_UNCALIBRATED. Real embedders do not degrade that way, so a failure
+of that kind here is a limit of the double rather than a defect in retrieval.
+"""
 
 from support import make_pdf, make_png
 
@@ -36,7 +49,7 @@ async def test_results_are_ranked_and_numbered_from_one(api, doubles):
     await upload_image(api, doubles, "aadhaar government of india identity", "id.png")
     await upload_pdf(api, ["completely unrelated content about databases"], "db.pdf")
 
-    body = (await api.post("/search", json={"query": "aadhaar identity card"})).json()
+    body = (await api.post("/search", json={"query": "the scanned aadhaar identity card"})).json()
 
     assert [r["rank"] for r in body["results"]] == list(range(1, len(body["results"]) + 1))
     scores = [r["score"] for r in body["results"]]
@@ -46,7 +59,7 @@ async def test_results_are_ranked_and_numbered_from_one(api, doubles):
 async def test_result_carries_what_a_card_needs(api, doubles):
     memory_id = await upload_image(api, doubles, "government of india aadhaar", "id.png")
 
-    body = (await api.post("/search", json={"query": "government aadhaar"})).json()
+    body = (await api.post("/search", json={"query": "the scanned government aadhaar document"})).json()
     top = body["results"][0]
 
     assert top["memory_id"] == memory_id
@@ -67,7 +80,7 @@ async def test_pdf_result_carries_the_page(api):
         "policy.pdf",
     )
 
-    body = (await api.post("/search", json={"query": "reimbursement policy details"})).json()
+    body = (await api.post("/search", json={"query": "the pdf about reimbursement policy details"})).json()
 
     assert body["results"], "expected a match"
     assert body["results"][0]["page"] is not None
@@ -76,13 +89,13 @@ async def test_pdf_result_carries_the_page(api):
 async def test_image_result_has_no_page(api, doubles):
     await upload_image(api, doubles, "a screenshot of something", "shot.png")
 
-    body = (await api.post("/search", json={"query": "screenshot of something"})).json()
+    body = (await api.post("/search", json={"query": "the screenshot of something"})).json()
 
     assert body["results"][0]["page"] is None
 
 
 async def test_empty_corpus_refuses(api):
-    body = (await api.post("/search", json={"query": "anything"})).json()
+    body = (await api.post("/search", json={"query": "the scanned anything"})).json()
 
     assert body["refused"] is True
     assert body["reason"] == "no_evidence"
@@ -93,7 +106,7 @@ async def test_limit_is_respected(api, doubles):
     for i in range(4):
         await upload_image(api, doubles, f"document number {i} about invoices", f"{i}.png")
 
-    body = (await api.post("/search", json={"query": "invoices", "limit": 2})).json()
+    body = (await api.post("/search", json={"query": "the pdf invoices", "limit": 2})).json()
 
     assert len(body["results"]) <= 2
 
@@ -111,7 +124,7 @@ async def test_window_size_is_reported(api, doubles):
     await upload_image(api, doubles, "one about receipts", "a.png")
     await upload_image(api, doubles, "another about receipts", "b.png")
 
-    body = (await api.post("/search", json={"query": "receipts"})).json()
+    body = (await api.post("/search", json={"query": "the scanned receipts document"})).json()
 
     assert body["documents_in_window"] >= 1
 
@@ -123,7 +136,7 @@ async def test_snippets_never_show_an_identifier(api, doubles):
     number = aadhaar("23456789012")
     await upload_image(api, doubles, f"aadhaar card number {number} govt", "id.png")
 
-    body = (await api.post("/search", json={"query": "aadhaar card"})).json()
+    body = (await api.post("/search", json={"query": "the scanned aadhaar card"})).json()
 
     assert body["results"], "expected a match"
     assert all(number not in r["snippet"] for r in body["results"])
@@ -160,7 +173,7 @@ async def test_a_matching_source_type_is_boosted_not_required(api, doubles):
     doubles["stage_one"].filters = {"source_types": ["email"]}
     await upload_pdf(api, ["the offer letter from human resources"], "scan.pdf")
 
-    body = (await api.post("/search", json={"query": "the offer letter"})).json()
+    body = (await api.post("/search", json={"query": "the mail with the offer letter"})).json()
 
     assert body["results"], "a mismatching source type must not exclude the document"
     assert body["results"][0]["filename"] == "scan.pdf"
