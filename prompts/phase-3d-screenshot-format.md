@@ -146,6 +146,25 @@ compete: printed-and-scanned → `pdf`, photographed-on-a-screen → `image`. If
 cannot hold both distinctions, that is the finding, and it is a more interesting one than
 the fix working.
 
+## Four rows that must not be among the failures
+
+The harness gate is **aggregate** — it refuses above a 25% stage 1 failure rate. That
+bounds how dense-only a run is; it does not protect the specific rows this phase turns on.
+A run could pass at 20% failure and still be uninterpretable, because the wrong 20% failed.
+
+**If any of `q006`, `q008`, `q010`, `q012` is in the failure list, retry rather than
+interpret** — even if the run wrote itself and the headline looks fine.
+
+| row | why it is load-bearing |
+|---|---|
+| **q010** | the prediction. Rank 5 → 1 is the whole claim, and a fallback to plain similarity is indistinguishable from the fix not working |
+| **q012** | the second prediction, same mechanism at a different similarity |
+| **q008** | the diagnosis. It takes the same wrong filter today and survives on similarity alone — a failed call there loses the control that separates "filter fixed" from "semantic_query perturbed" |
+| **q006** | the mirror risk. Its answer is a real PDF, and it is the row that says whether one prompt can hold both distinctions. A failure here hides a regression rather than showing one |
+
+A stage 1 failure on any of these makes that row dense-only, which is **exactly the arm it
+is being compared against**. The comparison collapses without producing an error.
+
 ## Acceptance
 
 1. Step 1 runs before any prompt edit, and costs 5 calls. Recount if not.
