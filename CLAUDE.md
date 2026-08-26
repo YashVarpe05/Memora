@@ -34,7 +34,8 @@ Every item here is something that already happened on this repo, not a generic w
 
 ## Stack
 FastAPI + Pydantic v2 + SQLAlchemy 2.0 async + Alembic · PostgreSQL 16 + pgvector · Redis + arq
-· React + Vite + TypeScript + Tailwind + shadcn/ui (PWA) · Gemini Flash · PaddleOCR · Whisper
+· React + Vite + TypeScript + Tailwind + shadcn/ui (PWA) · Ollama (qwen2.5:3b, stage 1)
+· CLIP ViT-B/32 (visual search) · Tesseract OCR · Gemini (optional comparison arm)
 
 ## Repo map
 ```

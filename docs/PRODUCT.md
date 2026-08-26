@@ -97,6 +97,36 @@ someone searches for their own ID.
 
 Every query goes through two stages.
 
+### Which model runs stage 1
+
+**The default is a local model. Hosted is a comparison arm, not the system.**
+
+| configuration | Recall@1 | quota | deprecation | query leaves the device | reproducible from this repo |
+|---|---|---|---|---|---|
+| dense-only, no stage 1 | 0.842 | — | — | no | yes |
+| **local — `qwen2.5:3b` via Ollama** | **0.895** | **none** | **none** | **no** | **yes** |
+| hosted — `gemini-2.5-flash` | 0.947 | 20/day/model | **live** | yes | **no** |
+
+Measured 2026-08-26; see `PHASE3-LOCAL.md`. The local model runs on CPU in a container
+beside OCR, cost nothing, and produced valid extractions on 23 of 23 queries.
+
+**This inverts the earlier assumption.** Hosted stage 1 was the system and local was a
+closing experiment. It is now the other way round, for three reasons that are all measured
+rather than argued:
+
+1. **It clears the bar.** `PHASE3.md` established that a weak extractor is worse than
+   none — `gemini-flash-lite-latest` scored 0.789, below the 0.842 dense baseline. 0.895
+   is above it, so local stage 1 earns its place. The 0.052 gap to hosted is one gold row.
+2. **The hosted arm is not reproducible.** `gemini-2.5-flash` is closed to new API
+   projects — verified by call, see `MODEL-RISK.md`. **An examiner with a new key cannot
+   check the 0.947.** They can check the 0.895 by cloning the repo and running Ollama.
+3. **It closes the last outbound dependency.** Novelty claim 2's second layer said the
+   query leaves the device under paid-tier terms. On the local configuration the query
+   does not leave at all, and that layer collapses into the first.
+
+Hosted stays supported and stays in the ablation, because "we measured both" is a stronger
+report than "we picked one". It is no longer load-bearing.
+
 **Stage 1 — Query understanding.** One LLM call converts the natural-language
 description into:
 
@@ -331,8 +361,15 @@ Defensible claims:
       *below* the 0.842 achieved by using no extractor at all. A wrong filter is worse than
       no filter, so a small local model is a real risk, not an obvious win.
 
-   Claiming layer 1 alone is accurate. Claiming layers 1–2 requires paying. Claiming layer 3
-   is claiming something not built.
+   Claiming layer 1 alone is accurate. Claiming layers 1–2 requires paying.
+
+   **Layer 3 is now built and measured.** Local stage 1 on `qwen2.5:3b` scores 0.895
+   against a 0.842 dense baseline, so the query never leaves the device at all and the
+   three layers collapse into one sentence: **nothing leaves the device.** The obstacle
+   that made this uncertain — a weaker extractor measuring *below* no extractor — was
+   real, and was cleared by measurement rather than assumption. Hosted stage 1 remains as
+   a comparison arm at 0.947, one row better and not reproducible by anyone without a
+   pre-cutoff key.
 3. **Self-organizing archive** — document type, timeline and entity graph built without
    the user filing anything.
 

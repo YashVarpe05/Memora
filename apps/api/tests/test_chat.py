@@ -105,9 +105,9 @@ async def test_citations_point_at_the_chunks_that_were_sent(api, doubles):
 
 async def test_the_answer_is_the_generators_reply(api, app, doubles):
     """The route must not paraphrase, truncate or decorate the grounded answer."""
-    from support import FakeGenerator
-
     from memora.api.routers import chat as chat_router
+
+    from support import FakeGenerator
 
     reply = "Two-stage retrieval resolves vague references before searching."
     app.dependency_overrides[chat_router.get_generator] = lambda: FakeGenerator(reply)

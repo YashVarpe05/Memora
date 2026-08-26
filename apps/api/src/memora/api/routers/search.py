@@ -108,7 +108,21 @@ def get_embedder() -> Embedder:
 
 
 def get_query_understanding() -> QueryUnderstanding:
+    """Stage 1, local by default.
+
+    Local is not a fallback for when the quota runs out - it is the configuration the
+    product ships in. Hosted is reachable with STAGE1_PROVIDER=gemini and exists so the
+    ablation can report both, not because the system depends on it.
+    """
     settings = get_settings()
+    if settings.stage1_provider == "local":
+        from memora.services.local_query_understanding import (
+            build_local_query_understanding,
+        )
+
+        # Not cached: the cache exists to conserve a metered quota, and there is none.
+        return build_local_query_understanding(settings.local_stage1_model)
+
     inner = build_query_understanding()
     if not settings.stage1_cache:
         return inner

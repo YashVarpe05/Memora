@@ -1,13 +1,13 @@
 # Stage 1 — filtered retrieval
 
-Recorded 2026-08-26T09:37:25+00:00, commit `65c2812`.
+Recorded 2026-08-26T09:54:07+00:00, commit `88a3510`.
 
 **Query understanding is ON.** Compare against `BASELINE.md`, which is the
 same corpus and gold set with stage 1 disabled.
 
 ## What was measured
 
-- Corpus: 11 documents, 377 chunks
+- Corpus: 14 documents, 377 chunks
 - Gold set: 23 queries (19 retrieval, 4 refusal)
 - Retrieval: dense cosine over `gemini-embedding-001` at 768 dims, with stage 1 filters applied as boosts.
 - Evaluated against an already-indexed corpus, verified by content hash.
@@ -27,10 +27,10 @@ same corpus and gold set with stage 1 disabled.
 |---|---|---|
 | `content_semantic` | 2 | 2 |
 | `disambiguation` | 4 | 4 |
-| `entity_resolution` | 3 | 4 |
+| `entity_resolution` | 4 | 4 |
 | `metadata_only` | 3 | 3 |
 | `must_refuse` | 0 | 4 |
-| `temporal_resolution` | 3 | 3 |
+| `temporal_resolution` | 2 | 3 |
 | `visual_recall` | 2 | 3 |
 
 ## Every query
@@ -42,7 +42,7 @@ same corpus and gold set with stage 1 disabled.
 | q003 | `disambiguation` | 1 | the synopsis about checking code for mistakes | CodeGuardAI_Synopsis.pdf |
 | q004 | `disambiguation` | 1 | the project about making websites do things on their own | Relay____Synopsis.pdf |
 | q005 | `content_semantic` | 1 | the list of drone topics i was supposed to learn | mail.pdf |
-| q006 | `entity_resolution` | 2 | the mail yash sent to rutuja | yashvarpe2005@gmail.com.ics |
+| q006 | `entity_resolution` | 1 | the mail yash sent to rutuja | mail.pdf |
 | q007 | `visual_recall` | 1 | the screenshot of that dashboard with the forms on it | WhatsApp Image 2026-06-13 at 16.58 |
 | q008 | `metadata_only` | 1 | the ai job someone forwarded to me on whatsapp | WhatsApp Image 2026-07-03 at 01.24 |
 | q009 | `entity_resolution` | 1 | the job thing anu priya sent | WhatsApp Image 2026-07-03 at 01.24 |
@@ -52,14 +52,14 @@ same corpus and gold set with stage 1 disabled.
 | q013 | `entity_resolution` | 1 | the whatsapp message from aradhana | WhatsApp Image 2026-07-03 at 01.24 |
 | q014 | `temporal_resolution` | 1 | when was i supposed to fill the scholarship form | yashvarpe2005@gmail.com.ics |
 | q015 | `temporal_resolution` | 1 | that uber clone thing i planned to build | yashvarpe2005@gmail.com.ics |
-| q016 | `temporal_resolution` | 1 | what i had planned to learn last year | yashvarpe2005@gmail.com.ics |
+| q016 | `temporal_resolution` | **miss** | what i had planned to learn last year | mail.pdf |
 | q017 | `metadata_only` | 1 | where are my birthday reminders kept | Birthdays_yashvarpe2005@gmail.com. |
 | q018 | `metadata_only` | 1 | the youtube course link i saved somewhere in my calendar | yashvarpe2005@gmail.com.ics |
-| q019 | `visual_recall` | **miss** | that photo of me leaning on the balcony at college | WhatsApp Image 2026-06-13 at 16.58 |
+| q019 | `visual_recall` | 2 | that photo of me leaning on the balcony at college | WhatsApp Image 2026-06-13 at 16.58 |
 | q020 | `must_refuse` | **ANSWERED** | my passport | yashvarpe2005@gmail.com.ics |
 | q021 | `must_refuse` | **ANSWERED** | my college fee receipt | yashvarpe2005@gmail.com.ics |
 | q022 | `must_refuse` | **ANSWERED** | the photo of me at the Taj Mahal | WhatsApp Image 2026-06-13 at 16.58 |
-| q023 | `must_refuse` | **ANSWERED** | the group photo from the farewell party | yashvarpe2005@gmail.com.ics |
+| q023 | `must_refuse` | **ANSWERED** | the group photo from the farewell party | WhatsApp Image 2026-06-13 at 16.58 |
 
 ## Where the failures went
 
@@ -67,19 +67,13 @@ Most frequent top result:
 
 | file | times ranked first |
 |---|---|
-| `yashvarpe2005@gmail.com.ics` | 8 |
-| `WhatsApp Image 2026-06-13 at 16.58.51.jpeg` | 3 |
+| `yashvarpe2005@gmail.com.ics` | 5 |
+| `WhatsApp Image 2026-06-13 at 16.58.51.jpeg` | 4 |
+| `mail.pdf` | 3 |
 | `WhatsApp Image 2026-07-03 at 01.24.47 (1).jpeg` | 3 |
 | `WhatsApp Image 2026-07-03 at 01.24.48.jpeg` | 2 |
-| `1773316539_ZnyZH84E.jpeg` | 1 |
 
-`yashvarpe2005@gmail.com.ics` is the top result for 8 of 23 queries (35%).
-
-## Stage 1 failures during this run
-
-**3 of 15 stage 1 calls failed.** Those rows fell back to plain similarity, so this run is a mixture of the two arms and not a clean stage 1 measurement. Rows affected: `q006`, `q022`, `q023`.
-
-Recorded in the file rather than only in the console, because a run that looks complete and quietly contains dense-only rows is exactly the false result this harness refuses to produce.
+`yashvarpe2005@gmail.com.ics` is the top result for 5 of 23 queries (22%).
 
 ## Stage 1 calls skipped
 
@@ -104,7 +98,7 @@ Skipped means the query carried no source-type word, no sender and no date, so s
 
 An extra model call on every search. Measured across these queries:
 
-- median 0 ms, range 0-706 ms
+- median 4219 ms, range 3059-5225 ms
 - added to every search, before any retrieval happens
 
 ## Top-score distribution
@@ -116,11 +110,11 @@ no single threshold separates them and refusal needs a different signal.
 | score | id | type |
 |---|---|---|
 | 0.494 | q019 | `visual_recall` |
+| 0.515 | q023 | `must_refuse` |
 | 0.530 | q022 | `must_refuse` |
-| 0.537 | q023 | `must_refuse` |
 | 0.538 | q020 | `must_refuse` |
 | 0.547 | q007 | `visual_recall` |
-| 0.562 | q016 | `temporal_resolution` |
+| 0.594 | q016 | `temporal_resolution` |
 | 0.599 | q017 | `metadata_only` |
 | 0.606 | q001 | `visual_recall` |
 | 0.619 | q010 | `disambiguation` |
@@ -129,8 +123,8 @@ no single threshold separates them and refusal needs a different signal.
 | 0.645 | q004 | `disambiguation` |
 | 0.647 | q021 | `must_refuse` |
 | 0.651 | q013 | `entity_resolution` |
+| 0.660 | q006 | `entity_resolution` |
 | 0.670 | q008 | `metadata_only` |
-| 0.679 | q006 | `entity_resolution` |
 | 0.685 | q018 | `metadata_only` |
 | 0.688 | q011 | `disambiguation` |
 | 0.704 | q015 | `temporal_resolution` |

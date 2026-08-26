@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     ocr_url: str = "http://localhost:8081"
     # Local stage 1. Loopback only - it holds no credentials and reaches nothing.
     ollama_url: str = "http://localhost:11434"
+    # Which model runs stage 1. Local is the DEFAULT, not a fallback: measured at
+    # Recall@1 0.895 against a 0.842 dense baseline, with no quota, no deprecation risk,
+    # and the query never leaving the machine. See docs/PHASE3-LOCAL.md.
+    #
+    # Set STAGE1_PROVIDER=gemini to run the hosted comparison arm, which scores 0.947 -
+    # one gold row better, and unreproducible by anyone without a pre-cutoff API key.
+    stage1_provider: str = "local"
+    local_stage1_model: str = "qwen2.5:3b-instruct"
     ocr_engine: str = "tesseract"
 
     # Blob root. The path of any single file is derived from user_id + hash, so
