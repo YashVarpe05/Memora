@@ -37,6 +37,19 @@ from memora.paths import anchored, resolve
 
 MRR_DEPTH = 10
 
+# Above this share of failed stage 1 calls, a run is not a stage 1 measurement any more
+# and must not be written.
+#
+# The gate used to require that EVERY call failed, and that was too weak by exactly the
+# margin that matters. On 2026-08-26 a run lost 13 of 15 calls to quota, kept two, and
+# wrote itself to PHASE3D.md - 87% dense-only under a stage 1 label, which is the same
+# false result the gate exists to stop, arriving through the one gap left open.
+#
+# Not zero: a single transient failure is normal and should warn rather than block. q019
+# failed once on 2026-08-25 and succeeded on the next run, and blocking there would have
+# cost a day for a row that misses in every arm.
+MAX_STAGE1_FAILURE_RATE = 0.25
+
 # A stable owner, so an ingest survives between runs. A fresh UUID per run would make
 # every measurement pay the full ingest cost, which is the thing this file exists to
 # avoid. Distinct from the dev identity, so a manual upload cannot contaminate a result.
@@ -390,6 +403,24 @@ def render(metrics: Metrics, meta: dict) -> str:
                 "understanding.",
             ]
 
+    failed = [o for o in metrics.outcomes if o.stage1_failed]
+    if failed and meta.get("stage1"):
+        ran = len([o for o in metrics.outcomes if not o.stage1_skipped])
+        lines += [
+            "",
+            "## Stage 1 failures during this run",
+            "",
+            f"**{len(failed)} of {ran} stage 1 calls failed.** Those rows fell back to plain "
+            "similarity, so this run is a mixture of the two arms and not a clean stage 1 "
+            "measurement. Rows affected: "
+            + ", ".join(f"`{o.row.id}`" for o in failed)
+            + ".",
+            "",
+            "Recorded in the file rather than only in the console, because a run that looks "
+            "complete and quietly contains dense-only rows is exactly the false result this "
+            "harness refuses to produce.",
+        ]
+
     skipped = [o for o in metrics.outcomes if o.stage1_skipped]
     if skipped and meta.get("stage1"):
         spent = len(metrics.outcomes) - len(skipped)
@@ -581,10 +612,13 @@ async def run(
             print()
             print(f"  stage 1 failed on {len(failures)}/{total} queries.")
             print(f"    e.g. {sorted(o.row.id for o in failures)[:3]}")
-            if len(failures) == total:
+            if total and len(failures) / total > MAX_STAGE1_FAILURE_RATE:
                 print()
-                print("  Every stage 1 call failed, so this run IS the dense-only path")
-                print("  wearing a stage 1 label. Refusing to write it.")
+                print(
+                    f"  {len(failures)} of {total} stage 1 calls failed, past the "
+                    f"{MAX_STAGE1_FAILURE_RATE:.0%} ceiling. Most of this run IS the"
+                )
+                print("  dense-only path wearing a stage 1 label. Refusing to write it.")
                 print()
                 return 1
 
