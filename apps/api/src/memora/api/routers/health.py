@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import text
 
 from memora.api.deps import SessionDep, SettingsDep
+from memora.config_provenance import describe as config_origins
 
 router = APIRouter(tags=["health"])
 
@@ -24,6 +25,9 @@ class ReadinessResponse(BaseModel):
     # Observed, not probed - checking quota would spend the quota being checked.
     query_understanding: str
     degraded_message: str | None = None
+    # Which config source each measurement-critical setting came from. A pin that is
+    # silently overridden looks identical to a pin that holds.
+    config_sources: dict[str, str]
 
 
 @router.get("/health", response_model=HealthResponse)
@@ -86,6 +90,10 @@ async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResp
         pgvector=pgvector,
         redis=redis_state,
         role=role,
+        config_sources={
+            o.field: (o.source + " (.env IGNORED)" if o.shadowed else o.source)
+            for o in config_origins(settings)
+        },
         query_understanding=stage1.state,
         degraded_message=describe(stage1),
     )

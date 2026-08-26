@@ -206,6 +206,10 @@ export interface components {
         };
         /** ReadinessResponse */
         ReadinessResponse: {
+            /** Config Sources */
+            config_sources: {
+                [key: string]: string;
+            };
             /** Database */
             database: string;
             /** Degraded Message */

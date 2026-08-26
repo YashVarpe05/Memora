@@ -153,6 +153,24 @@ you demo it believing it works.
   reset", and the run that followed lost 13 of its 15 calls. One or two calls had simply
   remained in the old window. **Never start a run on the strength of one successful
   call.** Count what is cached, or let the run's own failure gate decide and retry.
+- **A script's success message is not evidence the edit landed.** `str.replace` returns
+  the original when nothing matches, so an edit script can print "updated" having changed
+  nothing. That happened on 2026-08-26 while adding `.env` to the pre-commit hook: the
+  hook was reported updated, was not, and a `git add -f .env && git commit` then committed
+  a live API key. **Verify by making the thing fire** — stage the file and run the hook,
+  do not read the regex. Same shape as `_available()` checking imports rather than
+  inference.
+- **A value that is set is not a value that is used.** pydantic-settings resolves the
+  process environment BEFORE `.env`, so a shell variable silently shadows the file. A key
+  written into `.env` sat inert for an hour while a different one did the work. This is
+  worse for `gemini_model` than for credentials: a pin overridden by a shell variable
+  reintroduces the exact substitution the pin exists to prevent, and the report still says
+  "pinned". `config_provenance.py` prints the winning source at startup and on
+  `/health/ready`, flagging any `.env` value that lost.
+- **Listing a capability is not access to it.** `models.list` returns `gemini-2.5-flash`
+  for a key that gets 404 "no longer available to new users" when it actually calls the
+  model. Enumerate to discover; call to confirm. Third instance of this shape in this repo,
+  after PaddleOCR importing-but-not-running and the guard that only fired at 100%.
 - **A guard that only fires at 100% is not a guard.** The harness refused to write a run
   only when *every* stage 1 call failed. It caught two total outages, which is precisely
   what made it look sound, and then let through a run that was 87% dense-only under a

@@ -13,6 +13,17 @@ from memora.db.session import dispose_engine
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    # Which config source won, printed before anything uses it. A shell variable
+    # silently shadowing .env made a pinned model look pinned while something else
+    # ran - see config_provenance.
+    import logging
+
+    from memora.config_provenance import report
+
+    logger = logging.getLogger("memora.config")
+    for line in report(get_settings()):
+        logger.warning(line)
+
     yield
     await dispose_engine()
 

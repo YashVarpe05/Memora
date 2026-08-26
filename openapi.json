@@ -138,6 +138,13 @@
       },
       "ReadinessResponse": {
         "properties": {
+          "config_sources": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Config Sources",
+            "type": "object"
+          },
           "database": {
             "title": "Database",
             "type": "string"
@@ -180,7 +187,8 @@
           "pgvector",
           "redis",
           "role",
-          "query_understanding"
+          "query_understanding",
+          "config_sources"
         ],
         "title": "ReadinessResponse",
         "type": "object"
