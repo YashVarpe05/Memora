@@ -78,6 +78,17 @@ Two consequences worth carrying:
 - Switching models to dodge a quota limit silently changed what was being measured. The
   contaminated run is preserved at `data/eval-runs/20260824T200831-stage1.md`.
 
+## The model these numbers depend on is closing
+
+**Every figure in this document was measured on `gemini-2.5-flash`, and that model is now
+closed to new API projects.** Verified 2026-08-26: a key created before the cutoff returns
+200, one created after returns 404 *"no longer available to new users"*. Access is an
+accident of timing and cannot be re-obtained.
+
+The dense-only baseline, the corpus vectors and all CLIP results are unaffected — only
+generation is. Full blast radius, migration cost (23 calls, two days at the ceiling) and
+the exact reproducibility limitation to put in the report are in **`MODEL-RISK.md`**.
+
 ## Budget — the binding constraint
 
 Measured against the live API, not read from documentation:
