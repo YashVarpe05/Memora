@@ -1,6 +1,6 @@
 # Stage 1 — filtered retrieval
 
-Recorded 2026-08-26T09:20:18+00:00, commit `5b966cf`.
+Recorded 2026-08-26T09:21:51+00:00, commit `ad0e093`.
 
 **Query understanding is ON.** Compare against `BASELINE.md`, which is the
 same corpus and gold set with stage 1 disabled.
@@ -104,7 +104,7 @@ Skipped means the query carried no source-type word, no sender and no date, so s
 
 An extra model call on every search. Measured across these queries:
 
-- median 0 ms, range 0-595 ms
+- median 0 ms, range 0-789 ms
 - added to every search, before any retrieval happens
 
 ## Top-score distribution

@@ -152,11 +152,16 @@ CLIP_DIMS = 512
 
 
 class FakeImageEmbedder:
-    """Canned CLIP. Same image bytes -> same vector, so fusion is testable offline.
+    """Canned CLIP, sharing one text-and-image space the way real CLIP does.
 
-    Deliberately 512-dimensional. The text embedder is 768, and a test double that
-    returned the wrong width would let a dimension mixup reach pgvector instead of
-    failing here.
+    Both towers embed WORDS: an image is embedded from its filename, a query from its
+    text. So "group.png" as a query lands near the image called group.png, and an
+    unrelated query does not. A double returning hash-derived noise would put every
+    similarity near zero, and the refusal threshold would reject every visual hit - which
+    is a property of the double, not of the system, and it looked exactly like a bug.
+
+    Deliberately 512-dimensional. The text embedder is 768, and a double with the wrong
+    width would let a dimension mixup reach pgvector instead of failing here.
     """
 
     def __init__(self, fails: bool = False) -> None:
@@ -164,11 +169,18 @@ class FakeImageEmbedder:
         self.images: list[str] = []
         self.texts: list[str] = []
 
-    def _vector(self, seed: bytes) -> list[float]:
-        digest = hashlib.sha256(seed).digest()
-        raw = [(digest[i % len(digest)] - 128) / 128.0 for i in range(CLIP_DIMS)]
-        norm = math.sqrt(sum(v * v for v in raw)) or 1.0
-        return [v / norm for v in raw]
+    @staticmethod
+    def _vector(words: str) -> list[float]:
+        vector = [0.0] * CLIP_DIMS
+        for word in words.lower().replace(".", " ").replace("_", " ").split():
+            cleaned = "".join(ch for ch in word if ch.isalnum())
+            if not cleaned:
+                continue
+            vector[int(hashlib.sha256(cleaned.encode()).hexdigest(), 16) % CLIP_DIMS] += 1.0
+        norm = math.sqrt(sum(v * v for v in vector))
+        if norm == 0.0:
+            return [1.0] + [0.0] * (CLIP_DIMS - 1)
+        return [v / norm for v in vector]
 
     async def embed_image(self, data: bytes, filename: str = "upload"):
         from memora.services.image_embedding import ImageEmbeddingUnavailable
@@ -176,7 +188,7 @@ class FakeImageEmbedder:
         if self.fails:
             raise ImageEmbeddingUnavailable("clip is down")
         self.images.append(filename)
-        return self._vector(data), "fake-clip/test"
+        return self._vector(filename), "fake-clip/test"
 
     async def embed_text(self, text: str):
         from memora.services.image_embedding import ImageEmbeddingUnavailable
@@ -184,4 +196,4 @@ class FakeImageEmbedder:
         if self.fails:
             raise ImageEmbeddingUnavailable("clip is down")
         self.texts.append(text)
-        return self._vector(text.encode()), "fake-clip/test"
+        return self._vector(text), "fake-clip/test"

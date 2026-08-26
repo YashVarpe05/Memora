@@ -123,6 +123,12 @@ async def api(app, db, doubles, test_user_id, blob_store):
     app.dependency_overrides[uploads_router.get_image_embedder] = (
         lambda: doubles["image_embedder"]
     )
+    # The SEARCH router has its own CLIP dependency. Without this override /search calls
+    # the real container, and on failure falls into the ImageEmbeddingUnavailable branch
+    # silently - so fusion would appear to work in tests while never running.
+    app.dependency_overrides[search_router.get_image_embedder] = (
+        lambda: doubles["image_embedder"]
+    )
     app.dependency_overrides[uploads_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[files_router.get_blob_store] = lambda: blob_store
     app.dependency_overrides[chat_router.get_embedder] = lambda: doubles["embedder"]

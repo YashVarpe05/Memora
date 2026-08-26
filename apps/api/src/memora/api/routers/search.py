@@ -33,7 +33,7 @@ from memora.services.query_understanding import (
     build_query_understanding,
     passthrough,
 )
-from memora.services.retrieval import has_weak_evidence
+from memora.services.retrieval import has_weak_evidence, has_weak_image_evidence
 from memora.services.search import Boosts, fuse_results, search_documents
 from memora.services.stage1_health import describe, health
 
@@ -201,7 +201,12 @@ async def search(
 
     # Raw similarity, not boosted - a filter guess must not talk the system out of
     # refusing. See boosted_score in services/search.py.
-    if has_weak_evidence([outcome.raw_top_score] if ranked else []):
+    # Refusal asks whether EITHER index found something, on its own scale. Asking only
+    # the text index refuses every photo that has no text - which is precisely the
+    # document visual search exists to find, so the feature would be unreachable.
+    text_weak = has_weak_evidence([outcome.raw_top_score] if outcome.results else [])
+    image_weak = has_weak_image_evidence([h.similarity for h in image_hits])
+    if text_weak and image_weak:
         return SearchResponse(
             refused=True,
             reason="no_evidence" if not ranked else "weak_evidence",

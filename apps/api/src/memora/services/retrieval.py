@@ -32,6 +32,16 @@ from __future__ import annotations
 # Read from exactly one place: has_weak_evidence().
 MIN_SIMILARITY_UNCALIBRATED = 0.35
 
+# The SAME decision on CLIP's scale, which is not the text scale and must never be
+# compared with it: a CLIP text-image similarity around 0.28 is a strong match, where the
+# text pipeline treats 0.5 as weak.
+#
+# Also uncalibrated, and named so rather than tuned. The one measurement behind it:
+# "that photo of me leaning on the balcony at college" scores 0.348 against the correct
+# file, while "a group photo of people" tops out at 0.163 against a corpus containing no
+# group photo. 0.25 sits between those two observations and nothing more.
+MIN_IMAGE_SIMILARITY_UNCALIBRATED = 0.25
+
 
 def has_weak_evidence(similarities: list[float]) -> bool:
     """True when nothing retrieved is good enough to act on.
@@ -46,3 +56,15 @@ def has_weak_evidence(similarities: list[float]) -> bool:
     if not similarities:
         return True
     return max(similarities) < MIN_SIMILARITY_UNCALIBRATED
+
+
+def has_weak_image_evidence(similarities: list[float]) -> bool:
+    """The same question asked of the visual index, on its own scale.
+
+    Separate function rather than a threshold parameter, so the two numbers cannot be
+    passed to each other by accident. A text score judged against 0.25, or a CLIP score
+    judged against 0.35, would both look like working code.
+    """
+    if not similarities:
+        return True
+    return max(similarities) < MIN_IMAGE_SIMILARITY_UNCALIBRATED
