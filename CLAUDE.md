@@ -148,6 +148,17 @@ you demo it believing it works.
   pinned model, since each one is a call already made. The phase-3d plan costed 5 + 13 = 18
   against a ceiling that already carried 16, and step 1 fitting was luck rather than
   arithmetic.
+- **A probe that passes is not evidence the budget is there — only that it is not yet
+  zero.** On 2026-08-26 a single probe call succeeded at 11:24, was read as "the quota
+  reset", and the run that followed lost 13 of its 15 calls. One or two calls had simply
+  remained in the old window. **Never start a run on the strength of one successful
+  call.** Count what is cached, or let the run's own failure gate decide and retry.
+- **A guard that only fires at 100% is not a guard.** The harness refused to write a run
+  only when *every* stage 1 call failed. It caught two total outages, which is precisely
+  what made it look sound, and then let through a run that was 87% dense-only under a
+  stage 1 label. It now refuses above `MAX_STAGE1_FAILURE_RATE` (25%). When writing a
+  check against a degradation, ask what a **partial** version of that degradation looks
+  like — the binary case is the easy one and rarely the one that arrives.
 
 ## When in doubt
 
