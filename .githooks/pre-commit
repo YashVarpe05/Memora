@@ -10,10 +10,15 @@
 staged=$(git diff --cached --name-only --diff-filter=ACMR)
 offenders=$(printf '%s\n' "$staged" | grep -E '(^|/)data/(corpus|blobs|samples|ocr-bench)/' | grep -v '\.gitkeep$')
 drafts=$(printf '%s\n' "$staged" | grep -E 'GOLD\.jsonl\.draft$')
+# .env holds a live API key. .gitignore already covers it at any depth, so this can only
+# fire on `git add -f` - which is precisely the path an ignore rule cannot stop, and the
+# reason this hook exists at all. Verified by staging .env and running the hook, not by
+# reading the regex.
+secrets=$(printf '%s\n' "$staged" | grep -E '(^|/)\.env($|\.)' | grep -v '\.env\.example$')
 
-if [ -n "$offenders" ] || [ -n "$drafts" ]; then
-  echo "pre-commit: refusing to commit personal documents." >&2
-  printf '%s\n' "$offenders" "$drafts" | grep -v '^$' | sed 's/^/  /' >&2
+if [ -n "$offenders" ] || [ -n "$drafts" ] || [ -n "$secrets" ]; then
+  echo "pre-commit: refusing to commit personal documents or secrets." >&2
+  printf '%s\n' "$offenders" "$drafts" "$secrets" | grep -v '^$' | sed 's/^/  /' >&2
   echo >&2
   echo "  Unstage them, then check .gitignore uses **/ so the rule works at any depth." >&2
   exit 1
