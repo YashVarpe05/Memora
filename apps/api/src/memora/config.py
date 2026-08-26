@@ -46,6 +46,8 @@ class Settings(BaseSettings):
 
     # OCR runs in a container (infra/ocr), bound to loopback.
     ocr_url: str = "http://localhost:8081"
+    # Local stage 1. Loopback only - it holds no credentials and reaches nothing.
+    ollama_url: str = "http://localhost:11434"
     ocr_engine: str = "tesseract"
 
     # Blob root. The path of any single file is derived from user_id + hash, so

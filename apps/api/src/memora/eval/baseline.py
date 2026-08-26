@@ -532,6 +532,7 @@ async def run(
     do_ingest: bool,
     stage1: bool = True,
     stage1_skip: bool = True,
+    local_model: str | None = None,
 ) -> int:
     from httpx import ASGITransport, AsyncClient
 
@@ -551,6 +552,19 @@ async def run(
 
     owner = EVAL_USER_ID
     app.dependency_overrides[current_user_id] = lambda: owner
+
+    if local_model:
+        # Swap the extractor, nothing else. Same prompt, same parser, same call site -
+        # so a difference between this arm and the hosted one is the MODEL, and not two
+        # pipelines that happen to disagree.
+        from memora.api.routers import search as search_router
+        from memora.services.local_query_understanding import (
+            build_local_query_understanding,
+        )
+
+        local = build_local_query_understanding(local_model)
+        app.dependency_overrides[search_router.get_query_understanding] = lambda: local
+        print(f"  stage 1 -> LOCAL {local_model} (no hosted quota spent)")
 
     documents = chunks = elapsed = 0
 
@@ -588,6 +602,8 @@ async def run(
             print(f"  reusing indexed corpus: {documents} documents, {chunks} chunks")
 
         arm = "stage1" if stage1 else "dense"
+        if local_model:
+            arm = f"stage1 via LOCAL {local_model}"
         if stage1 and not stage1_skip:
             arm = "stage1, skip heuristic OFF"
         print(f"  running {len(rows)} queries ({len(rows)} embeds), arm={arm}...")
@@ -630,6 +646,7 @@ async def run(
         "ingest_seconds": elapsed,
         "stage1": stage1,
         "stage1_skip": stage1_skip,
+        "local_model": local_model,
     }
     report = render(metrics, meta)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -684,6 +701,14 @@ def main(argv: list[str] | None = None) -> int:
         help="run the dense-only path, for the ablation arm",
     )
     parser.add_argument(
+        "--local-model",
+        default=None,
+        help=(
+            "run stage 1 on a local Ollama model instead of Gemini, e.g. "
+            "qwen2.5:3b-instruct. Costs no hosted quota. See prompts/local-stage1.md."
+        ),
+    )
+    parser.add_argument(
         "--no-stage1-skip",
         action="store_true",
         help=(
@@ -709,6 +734,7 @@ def main(argv: list[str] | None = None) -> int:
             do_ingest=args.ingest,
             stage1=not args.no_stage1,
             stage1_skip=not args.no_stage1_skip,
+            local_model=args.local_model,
         )
     )
 

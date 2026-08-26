@@ -59,6 +59,28 @@ services:
       retries: 5
       start_period: 20s
 
+  # Local stage 1. Free-only is a project constraint, and this is the only extractor
+  # configuration with no daily cap, no deprecation risk, and no query leaving the
+  # machine - see prompts/local-stage1.md. CPU only: no GPU exists here, and none will
+  # exist on a phone either.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: memora-ollama
+    # Loopback only, like the OCR service. It holds no credentials and reaches nothing.
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
 volumes:
   memora-pgdata:
   memora-redisdata:
+  # Model weights, ~2GB per model. A named volume so a container rebuild does not
+  # re-download them.
+  ollama-models:
