@@ -110,7 +110,22 @@ async def upload_document(
     stored = blobs.put(user_id, data)
     existing = await memories.find_by_hash(stored.content_hash)
     if existing is not None:
-        # Same owner, same bytes. Nothing to re-ingest.
+        # Same owner, same bytes. Nothing to re-CHUNK - but a capability added since this
+        # document was ingested still has to reach it. Returning early here is what left
+        # 11 of 14 documents without a CLIP vector: the hash matched, and every
+        # derivation step below was skipped forever.
+        #
+        # Only artifacts that are actually missing are produced, so a genuine duplicate
+        # upload still costs one query. services/backfill.py does the same thing in bulk
+        # for documents nobody re-uploads.
+        from memora.services.backfill import ImageEmbeddingBackfiller, run_backfill
+
+        await run_backfill(
+            session,
+            user_id,
+            [ImageEmbeddingBackfiller(image_embedder, blobs)],
+            apply=True,
+        )
         chunk_count = await ChunkRepository(session, user_id).count_for_memory(existing.id)
         return UploadResponse(
             memory_id=str(existing.id),

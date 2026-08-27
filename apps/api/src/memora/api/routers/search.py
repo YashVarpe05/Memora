@@ -210,8 +210,23 @@ async def search(
             # the text index can answer perfectly well.
             image_hits = []
 
-    if image_hits:
-        ranked = fuse_results(ranked, image_hits, payload.limit)
+    # Only image hits that are actually EVIDENCE enter fusion.
+    #
+    # Measured 2026-08-26: fusing the raw list collapsed Recall@1 from 0.895 to 0.316.
+    # RRF rewards agreement between two lists, which is correct only if both are
+    # SELECTIVE. CLIP is not - it returns a nearest neighbour for every query, always. So
+    # once every image had a vector, the screenshots (which also carry OCR text) appeared
+    # in BOTH lists for every query and collected a bonus no text-only PDF could ever
+    # earn. Images topped twelve queries they had nothing to do with.
+    #
+    # The threshold is the same one refusal uses, on the same scale, for the same reason:
+    # below it, a CLIP hit is not evidence. Filtering here rather than weighting keeps
+    # the two scales apart - no image score is ever compared with a text score.
+    image_evidence = [
+        hit for hit in image_hits if not has_weak_image_evidence([hit.similarity])
+    ]
+    if image_evidence:
+        ranked = fuse_results(ranked, image_evidence, payload.limit)
 
     # Raw similarity, not boosted - a filter guess must not talk the system out of
     # refusing. See boosted_score in services/search.py.
@@ -219,7 +234,7 @@ async def search(
     # the text index refuses every photo that has no text - which is precisely the
     # document visual search exists to find, so the feature would be unreachable.
     text_weak = has_weak_evidence([outcome.raw_top_score] if outcome.results else [])
-    image_weak = has_weak_image_evidence([h.similarity for h in image_hits])
+    image_weak = not image_evidence
     if text_weak and image_weak:
         return SearchResponse(
             refused=True,
