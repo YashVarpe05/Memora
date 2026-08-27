@@ -361,6 +361,28 @@ Defensible claims:
       *below* the 0.842 achieved by using no extractor at all. A wrong filter is worse than
       no filter, so a small local model is a real risk, not an obvious win.
 
+   **The phone build changes this, and the change must be stated before it is built.**
+   "Nothing leaves the device" is measured and true *today* because the device is one
+   machine — API, Postgres, OCR and Ollama all run beside the browser, so no byte crosses
+   a network. A Capacitor app cannot run Postgres or a 3B model, so it talks to the user's
+   own machine, and the claim becomes:
+
+   > **Nothing leaves devices the user owns.** Documents are discovered on the phone and
+   > processed on the user's own computer. No document, image or query reaches a third
+   > party at any point.
+
+   Weaker in exactly one way and no more: bytes cross a local network between two machines
+   the same person owns. Every architectural rule still holds — rule 1 still forbids
+   document content in any prompt, masking still runs before embedding, RLS still binds,
+   and local stage 1 means the query still reaches nobody else.
+
+   **Do not let "on my device" imply more than discovery and display.** The honest framing
+   is a personal-server architecture: the axis is *your hardware versus somebody else's*,
+   which is the axis this project has argued along throughout. A fully on-device build
+   needs SQLite + sqlite-vec replacing Postgres + pgvector and a replacement for the RLS
+   guarantee — see `prompts/capacitor-auto-scan.md` §1. That is future work, and the
+   second half of it costs a novelty claim.
+
    Claiming layer 1 alone is accurate. Claiming layers 1–2 requires paying.
 
    **Layer 3 is now built and measured.** Local stage 1 on `qwen2.5:3b` scores 0.895
