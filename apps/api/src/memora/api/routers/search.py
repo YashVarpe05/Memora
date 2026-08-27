@@ -210,20 +210,30 @@ async def search(
             # the text index can answer perfectly well.
             image_hits = []
 
-    # Only image hits that are actually EVIDENCE enter fusion.
+    # The image index contributes ONLY documents the text index did not find.
     #
-    # Measured 2026-08-26: fusing the raw list collapsed Recall@1 from 0.895 to 0.316.
-    # RRF rewards agreement between two lists, which is correct only if both are
-    # SELECTIVE. CLIP is not - it returns a nearest neighbour for every query, always. So
-    # once every image had a vector, the screenshots (which also carry OCR text) appeared
-    # in BOTH lists for every query and collected a bonus no text-only PDF could ever
-    # earn. Images topped twelve queries they had nothing to do with.
+    # This is structural and needs no constant. CLIP exists to find documents the text
+    # index CANNOT find - a photo with no text has no chunk, so it can never appear in
+    # the text list at any quality. A document already in the text list is ranked by its
+    # text, and adding a visual bonus on top is precisely what broke ranking.
     #
-    # The threshold is the same one refusal uses, on the same scale, for the same reason:
-    # below it, a CLIP hit is not evidence. Filtering here rather than weighting keeps
-    # the two scales apart - no image score is ever compared with a text score.
+    # Measured 2026-08-26. Fusing the raw image list dropped Recall@1 from 0.895 to
+    # 0.316; filtering to hits above the evidence threshold recovered it only to 0.632.
+    # RRF rewards a document appearing in BOTH lists, which is sound only when both lists
+    # are SELECTIVE - and CLIP is not, it ranks everything. The WhatsApp screenshots carry
+    # OCR text and image vectors, so they appeared in both lists for every query and
+    # collected an agreement bonus a text-only PDF could never earn. Images topped twelve
+    # queries they had nothing to do with.
+    #
+    # The evidence threshold still applies as a floor, so a visually-irrelevant document
+    # cannot enter on a near-zero score. But the gate that matters is this one, and it is
+    # a property of the corpus rather than a tuned number.
+    text_found = {result.memory_id for result in outcome.results}
     image_evidence = [
-        hit for hit in image_hits if not has_weak_image_evidence([hit.similarity])
+        hit
+        for hit in image_hits
+        if hit.memory_id not in text_found
+        and not has_weak_image_evidence([hit.similarity])
     ]
     if image_evidence:
         ranked = fuse_results(ranked, image_evidence, payload.limit)
