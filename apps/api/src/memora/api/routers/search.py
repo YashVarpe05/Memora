@@ -19,6 +19,8 @@ from memora.api.deps import CurrentUserDep, DbDep
 from memora.config import get_settings
 from memora.repositories.chunk import ChunkRepository
 from memora.repositories.image_embedding import ImageEmbeddingRepository, ImageHit
+from memora.repositories.memory import MemoryRepository
+from memora.services.document_type import should_refuse
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.image_embedding import (
     ImageEmbedder,
@@ -243,12 +245,31 @@ async def search(
     # Refusal asks whether EITHER index found something, on its own scale. Asking only
     # the text index refuses every photo that has no text - which is precisely the
     # document visual search exists to find, so the feature would be unreachable.
+    # Refusal by document-type agreement, decided BEFORE the score.
+    #
+    # PHASE3.md: no threshold separates absent from present. q021 "my college fee receipt"
+    # scores 0.647 - above NINE documents that are the correct answer to their own query -
+    # because the calendar genuinely contains events about college and fees. Absence is not
+    # low similarity.
+    #
+    # This tests what the person actually asked for. They named a receipt; nothing in the
+    # corpus IS a receipt; refuse regardless of how well the words match. Scoped to this
+    # user, so another owner's documents cannot decide whether this one is refused.
+    type_mismatch = False
+    if filters.document_type:
+        held = await MemoryRepository(session, user_id).document_types()
+        type_mismatch = should_refuse(filters.document_type, held)
+
     text_weak = has_weak_evidence([outcome.raw_top_score] if outcome.results else [])
     image_weak = not image_evidence
-    if text_weak and image_weak:
+    if type_mismatch or (text_weak and image_weak):
         return SearchResponse(
             refused=True,
-            reason="no_evidence" if not ranked else "weak_evidence",
+            reason=(
+                f"no_{filters.document_type}_in_corpus"
+                if type_mismatch
+                else ("no_evidence" if not ranked else "weak_evidence")
+            ),
             total=0,
             results=[],
             chunks_examined=outcome.chunks_examined,

@@ -28,6 +28,7 @@ import time
 
 import httpx
 
+from memora.services.document_type import VOCABULARY
 from memora.services.query_understanding import (
     SOURCE_TYPES,
     SYSTEM_PROMPT,
@@ -52,6 +53,12 @@ STAGE1_SCHEMA = {
         "before": {"type": ["string", "null"]},
         "semantic_query": {"type": "string"},
         "needs_time_resolution": {"type": ["string", "null"]},
+        # Enumerated, so the decoder cannot invent a type. An invented one would
+        # refuse a document the person owns - the worst error this design can make.
+        "document_type": {
+            "type": ["string", "null"],
+            "enum": [*VOCABULARY, None],
+        },
     },
     "required": ["source_types", "semantic_query"],
 }

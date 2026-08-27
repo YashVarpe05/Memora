@@ -35,8 +35,6 @@ SKIP = [
     pytest.param("the synopsis about checking code for mistakes", id="q003"),
     pytest.param("the project about making websites do things on their own", id="q004"),
     pytest.param("the uipath job in chennai", id="q011"),
-    pytest.param("my passport", id="q020"),
-    pytest.param("my college fee receipt", id="q021"),
 ]
 
 
@@ -70,7 +68,45 @@ def test_last_needs_a_period_to_be_a_date():
 def test_why_explains_the_decision():
     """A skip that cannot be inspected is a skip that gets trusted by default."""
     assert "photo" in why("that motivation photo")
-    assert why("my passport") == "no source-type, sender or date word"
+    assert why("the uipath job in chennai") == "no source-type, sender or date word"
+
+
+DOCUMENT_TYPE_QUERIES = [
+    pytest.param("my passport", "passport", id="q020"),
+    pytest.param("my college fee receipt", "receipt", id="q021"),
+    pytest.param("my pan card", "pan", id="pan"),
+    pytest.param("my 10th marksheet", "marksheet", id="marksheet"),
+]
+
+
+@pytest.mark.parametrize("query,expected", DOCUMENT_TYPE_QUERIES)
+def test_naming_a_document_type_is_filterable_signal(query: str, expected: str):
+    """Changed 2026-08-27, when refusal landed.
+
+    These used to skip, correctly: stage 1 returned only source types, senders and dates,
+    and "my passport" carries none of those. Then `document_type` became a filter, and the
+    skip silently disabled refusal for exactly the queries refusal exists for - q020 and
+    q021 never reached stage 1, so there was no type to disagree with. Refusal accuracy sat
+    at 0.000 with the extractor working perfectly.
+
+    A word naming a KIND of document is filterable signal now.
+    """
+    assert has_filterable_signal(query), f"refusal cannot fire: {why(query)}"
+    assert expected in why(query)
+
+
+def test_the_document_vocabulary_has_one_source_of_truth():
+    """Structural: adding a document type must not leave this heuristic behind.
+
+    The two lists diverging is how q020 came to be skipped in the first place.
+    """
+    from memora.services.document_type import VOCABULARY
+    from memora.services.query_signal import DOCUMENT_WORDS
+
+    for label in VOCABULARY:
+        single = label.replace("_", " ")
+        if " " not in single:
+            assert single in DOCUMENT_WORDS, f"{label} is a type the skip check cannot see"
 
 
 def test_case_and_punctuation_do_not_change_the_decision():
@@ -102,7 +138,7 @@ async def test_a_skip_is_not_reported_as_a_failure(api, doubles):
     doubles["ocr"].text = "uipath chennai job opening"
     await api.post("/uploads", files={"file": ("job.png", make_png(), "image/png")})
 
-    body = (await api.post("/search", json={"query": "my passport"})).json()
+    body = (await api.post("/search", json={"query": "the uipath job in chennai"})).json()
 
     assert body["stage1_skipped"] is True
     assert body["stage1_failed"] is False
@@ -128,7 +164,7 @@ async def test_disabling_stage1_does_not_report_a_skip(api, doubles):
     await api.post("/uploads", files={"file": ("job.png", make_png(), "image/png")})
 
     body = (
-        await api.post("/search", json={"query": "my passport", "stage1": False})
+        await api.post("/search", json={"query": "the uipath job in chennai", "stage1": False})
     ).json()
 
     assert body["stage1_skipped"] is False
@@ -168,7 +204,7 @@ async def test_turning_stage1_off_beats_forcing_the_skip_off(api, doubles, app):
     body = (
         await api.post(
             "/search",
-            json={"query": "my passport", "stage1": False, "stage1_skip": False},
+            json={"query": "the uipath job in chennai", "stage1": False, "stage1_skip": False},
         )
     ).json()
 

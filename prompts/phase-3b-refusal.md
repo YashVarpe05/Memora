@@ -2,46 +2,35 @@
 
 **Status: approved. Blocked on a measurement, not on approval — see sequencing.**
 
-## Sequencing — this phase cannot start until PHASE3C is measured
+## REVISED 2026-08-27 — the constraint this plan was written under is gone
 
-Adding `document_type` to stage 1's JSON schema **changes the system prompt, which
-invalidates every cache entry.** That is the cache working as designed, and it has a
-consequence for ordering that is easy to miss:
+**Stage 1 now runs locally by default** (`qwen2.5:3b` via Ollama, measured at Recall@1
+0.895 — see `PHASE3-LOCAL.md`). Every budget argument below was written when stage 1 was a
+metered hosted call, and none of it still applies:
 
-- PHASE3C must be measured against the **current** prompt, or its Recall@1 is not
-  comparable to the 0.947 in `PHASE3.md`.
-- So the prompt must not change until `docs/PHASE3C.md` exists.
-- PHASE3C costs 13 generate calls; a cold run after the prompt change costs 13 more.
-  **26 against a 20/day ceiling — the two measurements cannot share a day.**
+| the plan said | now |
+|---|---|
+| "this plan spends zero additional calls" — the design was shaped to avoid a second call | **irrelevant.** Local calls are unmetered. A second call costs latency, not budget. |
+| "this phase costs one cold cache warm — 21 calls against a 20/day ceiling, spanning two days" | **zero.** No cache, no ceiling, no waiting. |
+| "PHASE3C and phase 3b cannot share a day — 13 + 13 against a ceiling of 20" | **no such constraint.** Both can run in one afternoon. |
+| "any refusal design has to state its call cost before it is built" | still good practice, but the cost is now latency only |
 
-Order: measure PHASE3C → decide the skip → change the prompt → measure PHASE3B the
-following day.
+**This is a second, unplanned benefit of going local, and it is worth stating in the
+report.** Local stage 1 was argued for on privacy (`PRODUCT.md`) and then on
+reproducibility (`MODEL-RISK.md`). The third benefit only became visible after the switch:
+**the prompt is now free to iterate on.**
 
-**What can be built before the prompt changes:** the vocabulary, ingest-time labelling,
-the agreement check, and the migration. None of those touch stage 1. That is also the
-riskier half of the design — a wrong label is as harmful as a wrong filter — so building
-it first is not just schedule-filling.
+Every prompt change until now invalidated the entire stage 1 cache — the key is
+model + prompt + query — and cost a two-day cold re-measurement against a 20/day ceiling.
+That is why the screenshot sentence in phase 3d sat *applied but unmeasured* for a day, and
+why this refusal design was contorted to avoid a second call it could not afford. **A
+metered extractor does not just limit throughput; it freezes the prompt.** An unmetered one
+makes prompt engineering an experiment you can run rather than a change you must justify.
 
-**Built 2026-08-25, before the prompt change:** `services/document_type.py`, migration
-0004, `MemoryRepository.document_types()`, ingest labelling, 17 tests. The stage 1 prompt
-is untouched, so PHASE3C still measures the prompt PHASE3 measured.
+The design below is otherwise unchanged, because it was sound for reasons independent of
+cost: document-type agreement tests what the user asked for, rather than a proxy for it.
 
-Two things the build settled that the plan had left open:
-
-- **`classify()` reads only the head of a document** (first five blocks, 1500 chars). The
-  calendar is 353 of 377 chunks and mentions "receipt" and "certificate" somewhere inside
-  it. Reading the whole file would type the calendar as a receipt, and then every receipt
-  query would match it instead of refusing — the calendar attractor defeating refusal the
-  same way it defeats retrieval.
-- **`document_types()` is scoped to the owner.** Whether another user holds a receipt must
-  not decide whether this user is refused: a global lookup leaks the existence of someone
-  else's document through refusal behaviour, without ever showing the file.
-
-**A dependency the plan did not have:** a cold refusal run costs 13 generate calls *only
-because the skip exists*. If PHASE3C says revert the skip, refusal measurement goes back to
-21 calls and no longer fits in a day. The two phases are coupled through the budget.
-
-## Goal
+## Goal## Goal
 
 Refusal accuracy off 0.000, without discarding correct answers, and **without a second
 generate call per query**.
@@ -177,12 +166,12 @@ and incorrectly located, which is worth stating rather than forgetting.
 
 ```
 cd apps/api && uv run pytest && uv run ruff check . && uv run alembic upgrade head
-cd apps/api && STAGE1_CACHE=true uv run python -m memora.eval.baseline --out docs/PHASE3B.md
+cd apps/api && uv run python -m memora.eval.baseline --local-model qwen2.5:3b-instruct --out docs/PHASE3B.md
 ```
 
-Note the cache invalidates when the stage 1 prompt changes, and adding `document_type`
-changes it. **This phase therefore costs one cold cache warm — 21 calls against a 20/day
-ceiling, spanning two days.** Stated here so it is planned rather than discovered.
+**Costs nothing and can be re-run as often as needed.** No cache flag: the cache exists to
+conserve a metered quota and there is none. Re-running after a prompt tweak is now the
+normal way to work rather than a two-day commitment.
 
 ## Risks
 

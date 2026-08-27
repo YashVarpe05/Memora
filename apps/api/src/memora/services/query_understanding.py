@@ -40,6 +40,9 @@ Return ONLY a JSON object, no prose and no markdown fence, with these keys:
   semantic_query    the part of the question that needs meaning-based search, with
                     filler like "the", "that thing", "i saved somewhere" removed.
   needs_time_resolution  the vague time phrase if there is one ("last semester"), else null.
+  document_type     the KIND of document named, or null. One of: aadhaar, pan,
+                    passport, marksheet, receipt, admit_card, certificate, id_card,
+                    resume, invoice, ticket.
 
 Guidance that matters:
 - A screenshot, photo or "picture of" is `image`. A message thread is `chat`.
@@ -51,6 +54,10 @@ Guidance that matters:
   X sent" and "the job they emailed" are often screenshots, so include `image` alongside
   `chat` or `email` rather than instead of it. Personal archives are full of photographs
   of other people's screens.
+- **`document_type` only when the query NAMES a kind of document.** "my fee receipt"
+  is `receipt`; "the thing anu priya sent" is null. A screenshot, a photo, a message,
+  a reminder and a link are NOT document types - they are formats or contents, and
+  guessing one refuses a document the person actually owns.
 - Relative dates resolve against the current date given below.
 - If you are unsure, return fewer constraints. An empty array is better than a wrong one.
 """
@@ -67,6 +74,9 @@ class QueryFilters:
     after: datetime | None = None
     before: datetime | None = None
     needs_time_resolution: str | None = None
+    # The KIND of document asked for. Refusal compares it against what the corpus
+    # holds - see services/document_type.py for why that is not a similarity check.
+    document_type: str | None = None
     failed: bool = False
     failure_reason: str | None = None
     raw: dict = field(default_factory=dict, repr=False)
@@ -124,12 +134,18 @@ def parse_response(text: str, query: str) -> QueryFilters:
 
     semantic = data.get("semantic_query")
     sender = data.get("sender")
+    # normalise() maps onto the vocabulary and returns None for anything unrecognised,
+    # so an invented type disables refusal rather than causing one. Fails open.
+    from memora.services.document_type import normalise
+
+    document_type = normalise(data.get("document_type"))
 
     return QueryFilters(
         semantic_query=str(semantic).strip() if semantic else query,
         source_types=_strings(data.get("source_types"), SOURCE_TYPES),
         sender=str(sender).strip() if isinstance(sender, str) and sender.strip() else None,
         entities=_strings(data.get("entities")),
+        document_type=document_type,
         after=_parse_date(data.get("after")),
         before=_parse_date(data.get("before")),
         needs_time_resolution=(

@@ -51,6 +51,31 @@ TIME_WORDS = frozenset(
     }
 )  # fmt: skip
 
+def _document_type_words() -> frozenset[str]:
+    """Single-word names for a KIND of document.
+
+    Added 2026-08-27, with refusal. The vocabulary above was written when stage 1 returned
+    only source types, senders and dates, so "my passport" carried no signal and was
+    correctly skipped. Then refusal made `document_type` a filter - and the skip silently
+    disabled refusal for exactly the queries it exists for. q020 "my passport" and q021
+    "my college fee receipt" never reached stage 1, so there was no type to disagree with,
+    and refusal accuracy stayed at 0.000 while the extractor was working perfectly.
+
+    Derived from `document_type.VOCABULARY` so there is ONE source of truth: adding a
+    document type there cannot leave this list behind.
+    """
+    from memora.services.document_type import VOCABULARY
+
+    words: set[str] = set()
+    for label, synonyms in VOCABULARY.items():
+        words.add(label.replace("_", " "))
+        words.update(synonyms)
+    # Single tokens only. Multi-word synonyms are matched as phrases in reasons().
+    return frozenset(w for w in words if " " not in w and w.isascii())
+
+
+DOCUMENT_WORDS = _document_type_words()
+
 _YEAR = re.compile(r"\b(?:19|20)\d{2}\b")
 _RELATIVE_DATE = re.compile(
     r"\b(?:last|this|next|past|previous)\s+"
@@ -83,6 +108,12 @@ def reasons(query: str) -> list[str]:
     lowered = query.lower()
     words = _tokens(query)
     found = sorted(words & SOURCE_WORDS) + sorted(words & TIME_WORDS)
+    found += sorted(words & DOCUMENT_WORDS)
+    # Multi-word types: "pan card", "admit card", "mark sheet".
+    from memora.services.document_type import VOCABULARY
+
+    for synonyms in VOCABULARY.values():
+        found += [p for p in synonyms if " " in p and p in lowered]
     if _YEAR.search(lowered):
         found.append("year")
     if match := _RELATIVE_DATE.search(lowered):
