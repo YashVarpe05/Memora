@@ -49,7 +49,15 @@ NOT_A_TYPE = frozenset({"reminder", "reminders", "list", "link", "screenshot", "
 
 
 def _haystack(*parts: str | None) -> str:
-    return " ".join(p.lower() for p in parts if p)
+    """Lowercased, with separators normalised to spaces.
+
+    Filenames use underscores and hyphens where the vocabulary uses spaces, so
+    "college_id.jpg" would not match the `id_card` synonym "college id" without this.
+    Found by `memora.eval.impact`, which reported that the file about to be added to fill
+    the `document_identity` gap would not classify as an identity document at all.
+    """
+    joined = " ".join(p.lower() for p in parts if p)
+    return re.sub(r"[_\-.]+", " ", joined)
 
 
 def classify(filename: str | None = None, text: str | None = None) -> str | None:
