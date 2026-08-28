@@ -1,0 +1,26 @@
+<!--
+  UNVERIFIED ON DEVICE. Merge these into the generated
+  android/app/src/main/AndroidManifest.xml after `npx cap add android`.
+
+  MANAGE_EXTERNAL_STORAGE is RESTRICTED on the Play Store and would block publication.
+  It is used here because the deliverable is a sideloaded APK, and the limitation is
+  recorded in PRODUCT.md and the report. The publishable alternative is the Storage
+  Access Framework folder picker - more setup friction, no device-wide discovery.
+-->
+
+<!-- Inside <manifest>, before <application> -->
+<uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+<uses-permission android:name="android.permission.INTERNET" />
+<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+<uses-permission android:name="android.permission.CAMERA" />
+
+<!--
+  On <application>, add:
+
+    android:usesCleartextTraffic="true"
+
+  The laptop serves plain HTTP on a hotspot address. This is a LAN between two machines
+  the same person owns - see prompts/capacitor-auto-scan.md section 1 - but it IS
+  cleartext, and the report should say so rather than let "local" imply "encrypted".
+-->
