@@ -48,6 +48,14 @@ class Settings(BaseSettings):
     ocr_url: str = "http://localhost:8081"
     # Local stage 1. Loopback only - it holds no credentials and reaches nothing.
     ollama_url: str = "http://localhost:11434"
+    # Port the phone reaches. Baked into the pairing QR.
+    api_port: int = 8000
+    # Require a paired device token from anything that is not loopback.
+    #
+    # The demo network is a phone hotspot and the API serves the owner's identity
+    # documents, so anyone else who joins can otherwise read them. This is the difference
+    # between "nothing leaves devices you own" being true and being aspirational.
+    require_pairing: bool = True
     # Which model runs stage 1. Local is the DEFAULT, not a fallback: measured at
     # Recall@1 0.895 against a 0.842 dense baseline, with no quota, no deprecation risk,
     # and the query never leaving the machine. See docs/PHASE3-LOCAL.md.

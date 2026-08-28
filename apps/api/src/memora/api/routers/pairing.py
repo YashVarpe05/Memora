@@ -1,0 +1,138 @@
+"""Pairing endpoints, and the check that makes the token mean something.
+
+The QR flow:
+
+    laptop:  POST /pair/start   -> {code, url, expires_at}   rendered as a QR
+    phone:   POST /pair/claim   -> {device_token}            stored in SecureStorage
+    phone:   every request      -> Authorization: Bearer <device_token>
+
+`require_paired_device` is the half that matters. A token nobody checks is decoration.
+"""
+
+from __future__ import annotations
+
+import socket
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
+
+from memora.api.deps import SettingsDep
+from memora.services.pairing import PairingStore, store
+
+router = APIRouter(tags=["pairing"])
+
+
+class PairingStart(BaseModel):
+    code: str
+    # What the phone should call. Discovered rather than configured, so the QR works on
+    # whatever address the hotspot handed out.
+    url: str
+    expires_at: str
+
+
+class PairingClaim(BaseModel):
+    code: str = Field(min_length=1, max_length=128)
+
+
+class DeviceToken(BaseModel):
+    device_token: str
+
+
+class PairingStatus(BaseModel):
+    devices_paired: int
+    pairing_required: bool
+
+
+def lan_address(port: int) -> str:
+    """This machine's address on the network the phone is on.
+
+    Uses a UDP socket to a routable address to learn which interface would be used. No
+    packet is sent; it is the routing table being asked, not the internet - which matters
+    because the demo network is a phone hotspot with no upstream connectivity.
+    """
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("10.255.255.255", 1))
+        host = probe.getsockname()[0]
+    except OSError:
+        host = "127.0.0.1"
+    finally:
+        probe.close()
+    return f"http://{host}:{port}"
+
+
+def get_store() -> PairingStore:
+    return store()
+
+
+StoreDep = Annotated[PairingStore, Depends(get_store)]
+
+
+async def require_paired_device(
+    request: Request, settings: SettingsDep, pairings: StoreDep
+) -> None:
+    """Reject anything from an unpaired device.
+
+    Loopback is exempt: the laptop's own browser is the owner sitting at the machine, and
+    requiring it to pair with itself would mean showing a QR to scan with the screen the
+    QR is on.
+
+    Everything else needs the token. On a phone hotspot the API is reachable by anyone
+    who joined, and it serves the owner's identity documents.
+    """
+    if not settings.require_pairing:
+        return
+
+    client = request.client.host if request.client else ""
+    if client in ("127.0.0.1", "::1", "localhost"):
+        return
+
+    header = request.headers.get("authorization", "")
+    token = header[7:] if header.lower().startswith("bearer ") else None
+    if not pairings.is_paired(token):
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "This device is not paired. Scan the QR code on the Memora window.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+@router.post("/pair/start", response_model=PairingStart)
+async def start_pairing(settings: SettingsDep, pairings: StoreDep) -> PairingStart:
+    """Called by the laptop to produce a QR. Not reachable from the phone: pairing is
+    started by whoever is sitting at the machine, which is the whole point."""
+    pairing = pairings.start()
+    return PairingStart(
+        code=pairing.code,
+        url=lan_address(settings.api_port),
+        expires_at=pairing.expires_at.isoformat(timespec="seconds"),
+    )
+
+
+@router.post("/pair/claim", response_model=DeviceToken)
+async def claim_pairing(payload: PairingClaim, pairings: StoreDep) -> DeviceToken:
+    token = pairings.claim(payload.code)
+    if token is None:
+        # One message for unknown, expired and already-claimed. Distinguishing them
+        # would tell a guesser which half of the guess was right.
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST, "That pairing code is not valid. Show a new one."
+        )
+    return DeviceToken(device_token=token)
+
+
+@router.get("/pair/status", response_model=PairingStatus)
+async def pairing_status(settings: SettingsDep, pairings: StoreDep) -> PairingStatus:
+    return PairingStatus(
+        devices_paired=pairings.device_count,
+        pairing_required=settings.require_pairing,
+    )
+
+
+@router.post("/pair/revoke", response_model=PairingStatus)
+async def revoke_pairings(settings: SettingsDep, pairings: StoreDep) -> PairingStatus:
+    """Unpair every device. Loopback-only by the dependency above, so a paired phone
+    cannot revoke the owner's other devices."""
+    pairings.revoke_all()
+    return PairingStatus(devices_paired=0, pairing_required=settings.require_pairing)

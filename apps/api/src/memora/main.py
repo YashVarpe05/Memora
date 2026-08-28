@@ -3,10 +3,10 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from memora.api.routers import chat, files, health, search, uploads
+from memora.api.routers import chat, files, health, pairing, search, uploads
 from memora.config import get_settings
 from memora.db.session import dispose_engine
 
@@ -47,10 +47,20 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(health.router)
-    app.include_router(uploads.router)
-    app.include_router(chat.router)
-    app.include_router(files.router)
-    app.include_router(search.router)
+    app.include_router(pairing.router)
+    # Everything that touches the user's documents requires a paired device. Applied at
+    # registration rather than per-route: a new endpoint is protected by default, and
+    # forgetting the decorator cannot quietly expose a corpus.
+    #
+    # /health and /pair are deliberately outside this - the phone must be able to reach
+    # them before it has a token, and neither returns anything private.
+    from memora.api.routers.pairing import require_paired_device
+
+    paired = [Depends(require_paired_device)]
+    app.include_router(uploads.router, dependencies=paired)
+    app.include_router(chat.router, dependencies=paired)
+    app.include_router(files.router, dependencies=paired)
+    app.include_router(search.router, dependencies=paired)
     return app
 
 
