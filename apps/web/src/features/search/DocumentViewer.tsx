@@ -2,6 +2,7 @@ import { Download, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 import { cn } from '@/lib/utils';
+import { useAuthedMedia } from '@/platform/useAuthedMedia';
 
 import type { SearchResult } from './useSearch';
 
@@ -22,7 +23,10 @@ export function DocumentViewer({
   onClose: () => void;
 }) {
   const [failed, setFailed] = useState(false);
-  const src = `/api${result.file_url}`;
+  // Same limitation as thumbnails: neither <object data> nor a download anchor can
+  // send an Authorization header, and the token must not go in a URL.
+  const media = useAuthedMedia(`/api${result.file_url}`);
+  const src = media.src ?? '';
   const isImage = result.source_type === 'image';
   const isPdf = result.source_type === 'pdf';
 
@@ -87,7 +91,9 @@ export function DocumentViewer({
             <Fallback filename={result.filename} src={src} />
           </object>
         )}
-        {(failed || (!isImage && !isPdf)) && <Fallback filename={result.filename} src={src} />}
+        {(failed || media.failed || (!isImage && !isPdf)) && (
+          <Fallback filename={result.filename} src={src} />
+        )}
       </div>
     </div>
   );

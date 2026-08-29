@@ -2,6 +2,7 @@ import { CalendarDays, FileText, Image as ImageIcon, Mail, MessageSquare } from 
 import { useState } from 'react';
 
 import { cn } from '@/lib/utils';
+import { useAuthedMedia } from '@/platform/useAuthedMedia';
 
 import type { SearchResult } from './useSearch';
 
@@ -100,7 +101,9 @@ export function ResultCard({
 }) {
   const [thumbBroken, setThumbBroken] = useState(false);
   const Icon = ICONS[result.source_type] ?? FileText;
-  const showThumb = result.thumbnail_url && !thumbBroken;
+  // Relative in the browser; a blob URL fetched with the token on a paired device.
+  const thumb = useAuthedMedia(result.thumbnail_url ? `/api${result.thumbnail_url}` : null);
+  const showThumb = thumb.src && !thumbBroken && !thumb.failed;
   const title = meaningfulTitle(result);
 
   return (
@@ -115,7 +118,7 @@ export function ResultCard({
       <div className="relative shrink-0">
         {showThumb ? (
           <img
-            src={`/api${result.thumbnail_url}`}
+            src={thumb.src ?? undefined}
             alt=""
             loading="lazy"
             onError={() => setThumbBroken(true)}

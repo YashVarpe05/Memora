@@ -1,5 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
+import { apiFetch } from '@/platform/api';
+
 import type { components } from '@memora/core/types/api';
 
 type SearchResponse = components['schemas']['SearchResponse'];
@@ -42,7 +44,9 @@ const EMPTY: SearchState = {
 async function post(query: string, stage1: boolean, signal: AbortSignal): Promise<SearchResponse> {
   // POST, never GET: "find my aadhaar card" is a personal description and a GET would put
   // it in the URL, the browser history, and every access log in between.
-  const response = await fetch('/api/search', {
+  // apiFetch, not fetch: on a paired device this resolves to the laptop's LAN
+  // address and attaches the token. In the browser it stays a relative path.
+  const response = await apiFetch('/api/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, limit: 10, stage1 }),
