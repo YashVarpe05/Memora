@@ -34,6 +34,57 @@ The corpus is 10 files. The gate needs 20 queries across 8 types, and
 
 ---
 
+## The end goal: fully on-device
+
+**Stated as the destination, not the next phase.** The laptop version ships first. This
+section exists so the phone build is not designed around assumptions that contradict it.
+
+Today the phone discovers files and the laptop does everything else — a personal-server
+architecture, and `PRODUCT.md` states the claim accordingly: *nothing leaves devices the
+user owns*. The end goal removes the server, and the claim collapses back to *nothing
+leaves the device*.
+
+| component | today | on-device replacement | difficulty |
+|---|---|---|---|
+| OCR | Tesseract in a container | **ML Kit** — free, in-platform, better on photos than Tesseract | easy |
+| Visual search | CLIP, 3.19 GB container | **quantised ONNX**, ~50 MB | medium |
+| Storage + vectors | Postgres + pgvector | **SQLite + sqlite-vec** | medium |
+| Text embeddings | `gemini-embedding-001` | **ONNX MiniLM** on-device | medium |
+| **Stage 1** | `qwen2.5:3b` via Ollama | **open question** — see below | **unknown** |
+| Per-owner isolation | Postgres RLS, forced, tested | single-user device | **a claim changes** |
+
+**RLS is the one that costs something.** Half the privacy novelty claim rests on
+per-owner isolation being enforced in the database and tested against a non-superuser
+role. A single-user device has no other owner to isolate from, so the guarantee is not
+weakened so much as *made vacuous* — and the report must say that rather than quietly
+keeping the claim. It is a design decision, not a port.
+
+### Stage 1 on-device is an open question, and it is measurable now
+
+Two candidates:
+
+1. **A rule-based extractor.** Stage 1 returns source type, sender, date and document
+   type. Much of that is pattern matching, and `query_signal.py` already does rule-based
+   signal detection over the same vocabulary. A regex extractor is instant, free, needs no
+   model, and runs anywhere.
+2. **A sub-1B model** — Gemma 3 270M through Android's MediaPipe LLM API, if rules fall
+   short.
+
+**Rules first.** It costs nothing to try, it is measurable against the existing 23-row gold
+set with the existing harness, and the bar is already established: **0.842**, the
+dense-only baseline, because `PHASE3.md` measured that a weak extractor scores *below* using
+none.
+
+**The experiment is worth reporting whichever way it lands:** *how much of query
+understanding actually needs a language model?* If rules reach 0.895 the on-device build
+needs no LLM at all, which is a stronger result than the model working. If they do not, the
+gap between rules and a 3B model is itself the measurement of what the model contributes.
+
+This is a zero-cost experiment against a harness that already exists, so it can be run long
+before any of the ports above are attempted.
+
+---
+
 ## Retrieval is done. Stop tuning it.
 
 **After phase 3d and refusal, no further work on retrieval quality.** Not reranking, not
