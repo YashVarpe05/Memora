@@ -66,3 +66,13 @@ Thumbs.db
 
 # TS incremental build cache
 *.tsbuildinfo
+
+# Android build outputs. The generated project IS committed - it carries manual edits
+# (the FileDiscovery plugin and the manifest permissions) that cap add would not
+# reproduce - but its build artifacts are not.
+**/android/app/build/
+**/android/build/
+**/android/.gradle/
+**/android/local.properties
+**/android/capacitor-cordova-android-plugins/
+*.iml
