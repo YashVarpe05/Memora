@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 
 import { Routes } from '@memora/core';
 
-import { clearPairing, pairedServer } from '@/platform/api';
+import { clearPairing, isNative, pairedServer } from '@/platform/api';
 
 import { PairQrPanel } from './PairQrPanel';
 import { PairScanScreen } from './PairScanScreen';
@@ -11,13 +11,11 @@ import { PairScanScreen } from './PairScanScreen';
 /**
  * One route, two sides.
  *
- * A native build shows the scanner; a browser shows the QR. The check is capability-based
- * rather than a platform sniff: if this build can talk to Capacitor, it is the phone.
+ * A native build shows the scanner; a browser shows the QR. Nothing reaches this route on
+ * the phone by itself, which is why App.tsx sends an unpaired native build here — the
+ * scanner existing is not the same as the scanner being reachable, and it shipped once
+ * with no way in.
  */
-function isNative(): boolean {
-  return Boolean((window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
-    ?.isNativePlatform?.());
-}
 
 export function PairPage() {
   const navigate = useNavigate();

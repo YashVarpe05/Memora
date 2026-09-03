@@ -24,6 +24,20 @@ export interface Paired {
   token: string;
 }
 
+/**
+ * Is this the phone build?
+ *
+ * Capability-based rather than a user-agent sniff: if this build can reach Capacitor, it
+ * is running inside the native shell. Lives here because two callers need it and a second
+ * private copy would be free to drift from the first.
+ */
+export function isNative(): boolean {
+  return Boolean(
+    (window as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor
+      ?.isNativePlatform?.(),
+  );
+}
+
 export function pairedServer(): Paired | null {
   try {
     const token = localStorage.getItem(TOKEN_KEY);
