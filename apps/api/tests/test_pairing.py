@@ -141,7 +141,8 @@ async def test_loopback_never_needs_to_pair():
         client = type("C", (), {"host": "127.0.0.1"})()
         headers = Headers({})
 
-    assert await require_paired_device(FakeRequest(), Settings(require_pairing=True), PairingStore()) is None
+    settings = Settings(require_pairing=True)
+    assert await require_paired_device(FakeRequest(), settings, PairingStore()) is None
 
 
 async def test_health_and_pairing_are_reachable_before_pairing(api):
@@ -149,3 +150,165 @@ async def test_health_and_pairing_are_reachable_before_pairing(api):
     Neither endpoint returns anything private."""
     assert (await api.get("/health")).status_code == 200
     assert (await api.post("/pair/start")).status_code == 200
+
+
+# --- the operator boundary ---
+#
+# These exist because the router shipped without them. /pair/start and /pair/claim were
+# both open, so a phone on the hotspot could mint a code and claim it: two unauthenticated
+# requests to a genuine device token, and require_paired_device would then admit it
+# forever. The whole pairing mechanism enforced nothing. The suite did not notice because
+# the ASGI client always presents a loopback peer, so every route looks local in a test.
+
+
+def _request_from(host: str, headers: dict[str, str] | None = None):
+    from starlette.datastructures import Headers
+
+    class FakeRequest:
+        client = type("C", (), {"host": host})()
+
+    FakeRequest.headers = Headers(headers or {})
+    return FakeRequest()
+
+
+async def test_a_device_on_the_network_cannot_mint_a_pairing_code():
+    """The bypass. Minting is an operator power, not a network power."""
+    from fastapi import HTTPException
+
+    from memora.api.routers.pairing import require_local_operator
+    from memora.config import Settings
+
+    with pytest.raises(HTTPException) as raised:
+        await require_local_operator(_request_from("192.168.1.50"), Settings(require_pairing=True))
+
+    assert raised.value.status_code == 403
+
+
+async def test_a_device_on_the_network_cannot_revoke_pairings():
+    """Otherwise anyone on the hotspot can unpair the owner's phone mid-demo."""
+    from fastapi import HTTPException
+
+    from memora.api.routers.pairing import require_local_operator
+    from memora.config import Settings
+
+    with pytest.raises(HTTPException):
+        await require_local_operator(_request_from("10.29.51.7"), Settings(require_pairing=True))
+
+
+async def test_the_operator_at_the_machine_may_mint():
+    from memora.api.routers.pairing import require_local_operator
+    from memora.config import Settings
+
+    local = _request_from("127.0.0.1")
+    assert await require_local_operator(local, Settings(require_pairing=True)) is None
+
+
+
+
+# --- the same boundary, driven as real HTTP from a phone-like address ---
+#
+# The tests above drive the dependency directly; these drive the whole app. httpx's
+# ASGITransport takes the client peer, so a request can arrive from 192.168.1.50 instead
+# of the loopback the default presents - which is what made this class of bug invisible.
+
+
+def _from_the_network(app):
+    from httpx import ASGITransport, AsyncClient
+
+    return AsyncClient(
+        transport=ASGITransport(app=app, client=("192.168.1.50", 51111)),
+        base_url="http://memora.local",
+    )
+
+
+def _from_the_laptop(app):
+    from httpx import ASGITransport, AsyncClient
+
+    return AsyncClient(
+        transport=ASGITransport(app=app, client=("127.0.0.1", 51112)),
+        base_url="http://memora.local",
+    )
+
+
+async def test_the_self_pairing_bypass_is_closed():
+    """The bug this whole section exists for, end to end.
+
+    Shipped, a phone on the hotspot could mint a code and claim it - two unauthenticated
+    requests to a genuine device token, after which every document endpoint admitted it.
+    """
+    from memora.main import create_app
+
+    app = create_app()
+    async with _from_the_network(app) as phone:
+        minted = await phone.post("/pair/start")
+
+    assert minted.status_code == 403, "a device on the network must not mint its own code"
+
+
+async def test_a_phone_can_still_claim_a_code_the_laptop_minted():
+    """The fix must not close the bootstrap. The phone has no token at this point, so
+    /pair/claim has to answer a stranger - that is the one endpoint that must stay open."""
+    from memora.main import create_app
+
+    app = create_app()
+    async with _from_the_laptop(app) as laptop:
+        started = await laptop.post("/pair/start")
+    assert started.status_code == 200
+
+    async with _from_the_network(app) as phone:
+        claimed = await phone.post("/pair/claim", json={"code": started.json()["code"]})
+
+    assert claimed.status_code == 200, "the phone must be able to claim from the network"
+    assert claimed.json()["device_token"]
+
+
+async def test_the_network_cannot_revoke_or_read_status():
+    from memora.main import create_app
+
+    app = create_app()
+    async with _from_the_network(app) as phone:
+        assert (await phone.post("/pair/revoke")).status_code == 403
+        assert (await phone.get("/pair/status")).status_code == 403
+
+
+async def test_the_network_cannot_reach_search_without_a_paired_token():
+    """Refused before the route body runs, so this needs no database - which is the
+    point: enforcement that depended on Postgres being up would be enforcement that
+    silently skipped itself, and this suite has shipped that mistake before."""
+    from memora.main import create_app
+
+    app = create_app()
+    async with _from_the_network(app) as phone:
+        none = await phone.post("/search", json={"query": "aadhaar", "limit": 3})
+        invented = await phone.post(
+            "/search",
+            json={"query": "aadhaar", "limit": 3},
+            headers={"Authorization": "Bearer not-a-real-token"},
+        )
+
+    assert none.status_code == 401, "no token must not reach the corpus"
+    assert invented.status_code == 401, "an invented token must not reach the corpus"
+
+
+async def test_a_paired_phone_gets_past_the_door(app, api):
+    """The other half. Without it the suite proves only that everything is refused,
+    which a brick wall also does.
+
+    Takes `api` for its doubles and database session - and, just as importantly, for its
+    skip: `app` alone is deliberately DB-free, so this test would raise
+    ConnectionRefusedError with the containers down instead of skipping, turning "Postgres
+    is off" into a red suite that looks like a broken feature. The client is built here
+    rather than reused from `api` because that one presents a loopback peer, which is the
+    exact condition this test has to avoid.
+    """
+    async with _from_the_laptop(app) as laptop:
+        code = (await laptop.post("/pair/start")).json()["code"]
+    async with _from_the_network(app) as phone:
+        token = (await phone.post("/pair/claim", json={"code": code})).json()["device_token"]
+        accepted = await phone.post(
+            "/search",
+            json={"query": "aadhaar", "limit": 3},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert accepted.status_code != 401, "the paired phone must get past the door"

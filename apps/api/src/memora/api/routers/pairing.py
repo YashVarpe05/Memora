@@ -98,10 +98,39 @@ async def require_paired_device(
         )
 
 
-@router.post("/pair/start", response_model=PairingStart)
+async def require_local_operator(request: Request, settings: SettingsDep) -> None:
+    """The owner at the keyboard, not a device on the network.
+
+    Minting and revoking pairings is not a paired-device power, it is an operator power,
+    so it is gated on loopback rather than on a token. Without this, pairing enforces
+    nothing at all: any phone on the hotspot could POST /pair/start, POST /pair/claim the
+    code it just minted, and hold a valid device token two unauthenticated requests after
+    joining the network. `require_paired_device` would then wave it through, because the
+    token is genuine - it was issued to an attacker by design.
+
+    `/pair/claim` is deliberately NOT behind this. The phone has no token when it claims;
+    that request is the bootstrap. It is safe open because the code is 48 bits, single-use
+    and expires in five minutes, and with `/pair/start` closed an attacker cannot mint one
+    to claim - only guess.
+    """
+    if not settings.require_pairing:
+        return
+
+    client = request.client.host if request.client else ""
+    if client not in ("127.0.0.1", "::1", "localhost"):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "Pairing is started from the computer running Memora.",
+        )
+
+
+LocalOnly = [Depends(require_local_operator)]
+
+
+@router.post("/pair/start", response_model=PairingStart, dependencies=LocalOnly)
 async def start_pairing(settings: SettingsDep, pairings: StoreDep) -> PairingStart:
-    """Called by the laptop to produce a QR. Not reachable from the phone: pairing is
-    started by whoever is sitting at the machine, which is the whole point."""
+    """Called by the laptop to produce a QR. Loopback only - pairing is started by
+    whoever is sitting at the machine, which is the whole point."""
     pairing = pairings.start()
     return PairingStart(
         code=pairing.code,
@@ -122,7 +151,7 @@ async def claim_pairing(payload: PairingClaim, pairings: StoreDep) -> DeviceToke
     return DeviceToken(device_token=token)
 
 
-@router.get("/pair/status", response_model=PairingStatus)
+@router.get("/pair/status", response_model=PairingStatus, dependencies=LocalOnly)
 async def pairing_status(settings: SettingsDep, pairings: StoreDep) -> PairingStatus:
     return PairingStatus(
         devices_paired=pairings.device_count,
@@ -130,9 +159,9 @@ async def pairing_status(settings: SettingsDep, pairings: StoreDep) -> PairingSt
     )
 
 
-@router.post("/pair/revoke", response_model=PairingStatus)
+@router.post("/pair/revoke", response_model=PairingStatus, dependencies=LocalOnly)
 async def revoke_pairings(settings: SettingsDep, pairings: StoreDep) -> PairingStatus:
-    """Unpair every device. Loopback-only by the dependency above, so a paired phone
-    cannot revoke the owner's other devices."""
+    """Unpair every device. Loopback only, so a phone on the hotspot cannot unpair the
+    owner's devices - which would be a denial of service against the demo."""
     pairings.revoke_all()
     return PairingStatus(devices_paired=0, pairing_required=settings.require_pairing)

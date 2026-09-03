@@ -6,6 +6,15 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["-C", "apps/web", "dev"],
       "port": 5173
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "--directory", "apps/api", "run", "uvicorn", "memora.main:app",
+        "--host", "0.0.0.0", "--port", "8000"
+      ],
+      "port": 8000
     }
   ]
 }

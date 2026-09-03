@@ -38,6 +38,14 @@ export default defineConfig({
     },
   },
   server: {
+    // No `host`. Deliberate: the dev server must stay on loopback.
+    //
+    // Exposing it (`vite --host`) would let a phone on the hotspot load the UI and reach
+    // the API through this proxy - and because the proxy makes that call from the laptop,
+    // every request would arrive at the API as 127.0.0.1 and be waved through as the
+    // owner sitting at the machine. That launders an unpaired device into an exempt one
+    // and defeats pairing completely, without touching a line of API code. The phone gets
+    // in through the Capacitor app and a device token, never through this port.
     port: 5173,
     proxy: {
       // The API mounts its routers at the root, so the /api prefix is a dev-server
