@@ -1,11 +1,56 @@
 # Building and running Memora on a phone
 
-**Nothing in this document has been verified.** No APK has been built and no phone has run
-this code. Every Android file in the repo carries an "UNVERIFIED ON DEVICE" header. Treat
-this as a first attempt to follow, not a procedure known to work — and expect two or three
-things in §7 to be wrong.
-
 Written for someone who has never built an Android app.
+
+## Status — 2026-09-03
+
+Run end to end on a **Samsung Galaxy S23 FE, Android 16 (SDK 36)**, laptop on the phone's
+hotspot, phone on mobile data.
+
+**Verified on device:**
+
+| | |
+|---|---|
+| Build and install | Gradle 9.5 under **JDK 25** — the bundled Android Studio JBR. No toolchain downgrade needed |
+| App launch | WebView loads the bundled assets; an unpaired build opens on the pairing screen |
+| QR scan | MLKit barcode scanning decodes live camera frames |
+| Pairing | code claimed, token stored, laptop counter went to `1 device paired` |
+| Token enforcement | search from `10.29.51.91` (non-loopback) succeeds only with the token attached |
+| Two-stage retrieval | fast arm paints results, stage 1 re-ranks and shows `understood: type: image` |
+| OCR retrieval | a WhatsApp image was returned by its *read* text, not its filename |
+| Thumbnails | placeholder icons for files that genuinely have none — not broken images |
+
+**Still unverified:** the device scan itself — `FileDiscoveryPlugin`, `MANAGE_EXTERNAL_STORAGE`,
+MediaStore enumeration and upload. Those files keep their `UNVERIFIED ON DEVICE` headers.
+
+### The CORS trap, and why it cost an afternoon
+
+Scanning the QR failed with *"Could not reach your computer. Check both are on the same
+hotspot."* The network was never the problem. The access log had the answer the whole time:
+
+```
+10.29.51.91 - "OPTIONS /pair/claim HTTP/1.1" 400 Bad Request
+              Disallowed CORS origin
+```
+
+**A Capacitor WebView serves the bundled app from `http://localhost` with no port.**
+`cors_origins` listed only `http://localhost:5173`, the Vite dev server. Posting JSON is
+not a simple request, so the browser preflighted, the preflight was refused, `fetch` threw,
+and a catch-all reported a network failure it had not established.
+
+Two lessons, both now built into the code:
+
+1. **Read the access log before touching the network.** The request had arrived every time.
+2. **A browser cannot distinguish "unreachable" from "blocked by CORS"** — both throw the
+   same `TypeError`, deliberately. Guessing between them in an error message is guessing.
+   `PairScanScreen` now probes with a `no-cors` GET, which is never preflighted, and only
+   names the network when nothing answered at all.
+
+Two other red herrings worth recording: `ping` from phone to laptop is 100% lost while
+HTTP works fine, because Windows blocks ICMP on **Public** network profiles but not the TCP
+ports — do not diagnose a firewall from a failed ping. And a cable that charges may not
+carry data: `Unknown USB Device (Device Descriptor Request Failed)` with `VID_0000` means
+enumeration failed before Android was involved, so no phone setting can fix it.
 
 ---
 

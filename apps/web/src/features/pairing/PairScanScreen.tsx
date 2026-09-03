@@ -5,13 +5,14 @@ import { Button } from '@/components/ui/button';
 import { savePairing } from '@/platform/api';
 
 /**
- * UNVERIFIED ON DEVICE. The camera path has not run on a phone.
+ * The phone half of pairing: scan the QR, exchange the code for a device token, store both
+ * the token and the URL the QR carried.
  *
- * The phone half of pairing: scan the QR, exchange the code for a device token, store
- * both the token and the URL the QR carried.
+ * The URL matters as much as the code. Without it the app has no idea where the laptop is,
+ * and a relative path makes the phone call itself — which was the original blocker.
  *
- * The URL matters as much as the code. Without it the app has no idea where the laptop
- * is, and a relative path makes the phone call itself — which was the actual blocker.
+ * Verified on device 2026-09-03 (Galaxy S23 FE, Android 16): scan, claim, and a token-
+ * carrying search all succeed.
  */
 
 export interface PairingPayload {
@@ -31,16 +32,87 @@ export function parsePairingQr(raw: string): PairingPayload | null {
   return null;
 }
 
+/**
+ * Why a claim failed, to the precision the platform actually allows.
+ *
+ * - `refused`  — the server answered and said no. The status is the evidence.
+ * - `blocked`  — the server answered a probe, so it is reachable, but the claim itself
+ *                never completed. Configuration, not network.
+ * - `unreachable` — nothing answered at all.
+ */
+export type ClaimFailure =
+  | { kind: 'refused'; status: number }
+  | { kind: 'blocked' }
+  | { kind: 'unreachable' };
+
+export type ClaimResult = { ok: true; token: string } | { ok: false; failure: ClaimFailure };
+
+/**
+ * Did anything at all answer at this address?
+ *
+ * `mode: 'no-cors'` is the whole point. A cross-origin `fetch` throws an identical
+ * TypeError whether the host was unreachable or the response was withheld by CORS — the
+ * browser hides the difference on purpose, so the error object cannot tell them apart. A
+ * no-cors GET carries no custom headers, is therefore never preflighted, and resolves
+ * (opaquely) whenever bytes came back. It throws only when nothing answered.
+ *
+ * So this distinguishes "the network is broken" from "the server refused to talk to this
+ * origin" — which is precisely the distinction that cost an afternoon when the app
+ * asserted the first and the truth was the second.
+ */
+async function serverAnswers(url: string): Promise<boolean> {
+  try {
+    await fetch(`${url}/health`, { method: 'GET', mode: 'no-cors' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Exchange the code for a device token against the URL the QR carried. */
-export async function claim(payload: PairingPayload): Promise<string | null> {
-  const response = await fetch(`${payload.url}/pair/claim`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code: payload.code }),
-  });
-  if (!response.ok) return null;
+export async function claim(payload: PairingPayload): Promise<ClaimResult> {
+  let response: Response;
+  try {
+    response = await fetch(`${payload.url}/pair/claim`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: payload.code }),
+    });
+  } catch {
+    // Nothing here knows why yet. Ask the network a question it can answer.
+    const reachable = await serverAnswers(payload.url);
+    return { ok: false, failure: { kind: reachable ? 'blocked' : 'unreachable' } };
+  }
+
+  if (!response.ok) {
+    return { ok: false, failure: { kind: 'refused', status: response.status } };
+  }
+
   const { device_token: token } = (await response.json()) as { device_token: string };
-  return token;
+  return { ok: true, token };
+}
+
+/**
+ * What to tell the user, saying only what was established.
+ *
+ * The previous single message named a cause — "check both are on the same hotspot" — for
+ * a failure whose cause it had not determined. It was wrong, confidently, and sent the
+ * debugging to the network while the phone had been reaching the laptop on every attempt.
+ * Each branch below reports what happened; only `unreachable` suggests the network,
+ * because only there has the network actually been shown to be at fault.
+ */
+export function describeFailure(failure: ClaimFailure, url: string): string {
+  switch (failure.kind) {
+    case 'refused':
+      // The API returns one status for unknown, expired and already-claimed, on purpose.
+      return failure.status === 400
+        ? 'Your computer rejected that code. It may have expired or already been used — show a new one.'
+        : `Your computer answered with an error (${failure.status}). Nothing is wrong with the network.`;
+    case 'blocked':
+      return `${url} answered, so the network is fine — but it did not accept the pairing request. That is a setting on the computer, not a connection problem.`;
+    case 'unreachable':
+      return `Nothing answered at ${url}. Check the computer is on this phone's hotspot and Memora is running there.`;
+  }
 }
 
 export function PairScanScreen({ onPaired }: { onPaired: () => void }) {
@@ -72,18 +144,23 @@ export function PairScanScreen({ onPaired }: { onPaired: () => void }) {
         return;
       }
 
-      const token = await claim(payload);
-      if (!token) {
-        // One message for unknown, expired and already-claimed: the API does not
-        // distinguish them, and neither should this.
-        setError('That code did not work. Show a new one on your computer.');
+      const result = await claim(payload);
+      if (!result.ok) {
+        setError(describeFailure(result.failure, payload.url));
         return;
       }
 
-      savePairing({ url: payload.url, token });
+      savePairing({ url: payload.url, token: result.token });
       onPaired();
-    } catch {
-      setError('Could not reach your computer. Check both are on the same hotspot.');
+    } catch (err) {
+      // Reached only when the scanner itself failed — the camera, or a cancelled scan.
+      // Network faults are handled above with evidence; this branch has none, so it must
+      // not invent any.
+      setError(
+        err instanceof Error && err.message
+          ? `The scanner stopped: ${err.message}`
+          : 'The scanner stopped before reading a code.',
+      );
     } finally {
       setBusy(false);
     }
