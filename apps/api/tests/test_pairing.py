@@ -312,3 +312,36 @@ async def test_a_paired_phone_gets_past_the_door(app, api):
         )
 
     assert accepted.status_code != 401, "the paired phone must get past the door"
+
+
+# --- the origin the phone actually calls from ---
+
+
+async def test_the_capacitor_webview_origin_survives_a_cors_preflight():
+    """The phone is not a same-origin caller and never was.
+
+    A Capacitor WebView serves the bundled app from `http://localhost` with no port, so
+    every request it makes to the laptop is cross-origin and POSTing JSON triggers a
+    preflight first. With only `http://localhost:5173` allowed, that preflight returned
+    400 "Disallowed CORS origin", fetch threw, and the app displayed "Could not reach your
+    computer" - a network message for a configuration fault, which sent the debugging to
+    entirely the wrong place.
+
+    Asserted per origin rather than on the list, so deleting an entry fails here.
+    """
+    from memora.main import create_app
+
+    app = create_app()
+    for origin in ("http://localhost", "https://localhost", "capacitor://localhost"):
+        async with _from_the_network(app) as phone:
+            preflight = await phone.options(
+                "/pair/claim",
+                headers={
+                    "Origin": origin,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                },
+            )
+
+        assert preflight.status_code == 200, f"{origin} was refused: {preflight.text}"
+        assert preflight.headers.get("access-control-allow-origin") == origin

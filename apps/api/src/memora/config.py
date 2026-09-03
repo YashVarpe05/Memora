@@ -84,8 +84,25 @@ class Settings(BaseSettings):
 
     token_encryption_key: str | None = None
 
-    # Vite dev server
-    cors_origins: list[str] = ["http://localhost:5173"]
+    # Who may call this API from a browser engine.
+    #
+    # The Vite dev server is the laptop. The bare-`localhost` entries are the phone: a
+    # Capacitor WebView serves the bundled app from `http://localhost` with NO port, so
+    # `http://localhost:5173` does not match it and every request from the phone died on
+    # the CORS preflight - `OPTIONS /pair/claim` 400 "Disallowed CORS origin". The app
+    # reported that as "Could not reach your computer", which reads as a network fault and
+    # is why this cost an afternoon. The scheme follows `androidScheme` in
+    # capacitor.config.ts; `capacitor://localhost` is the iOS origin, listed so a future
+    # iOS build does not rediscover this.
+    #
+    # This is not the access control. Pairing is: every document route still requires a
+    # device token, so a permitted origin only means the browser will deliver the reply.
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://localhost",
+        "https://localhost",
+        "capacitor://localhost",
+    ]
 
     @property
     def is_production(self) -> bool:
