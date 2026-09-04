@@ -511,10 +511,15 @@ def render(metrics: Metrics, meta: dict) -> str:
         "",
         "## Known limitations at the time of measurement",
         "",
-        "- **No visual understanding.** OCR extracts text; it does not describe pictures. "
-        "Three corpus files contain no text and are therefore unfindable by any query.",
-        "- **`document_identity` is unmeasured.** The corpus contains no photograph of an "
-        "ID card, so the flagship query type has no gold row. This is the largest gap.",
+        "- **A high-chunk document dominates rank 1.** Measured 2026-09-04: q024 "
+        "('my college ID card') returns college_id.jpg at rank 2, beaten by "
+        "yashvarpe2005@gmail.com.ics, which holds 353 of the corpus's 377 chunks. A "
+        "document with 353 chances to produce a matching chunk outranks the one the "
+        "query is about. Scoring is per-chunk and the best chunk wins, so corpus share "
+        "and relevance are not separated. This is the largest measured gap.",
+        "- **`document_identity` rests on one row.** q024 is the only one, and it does "
+        "not isolate the visual path: its wording shares tokens with the filename, so "
+        "filename and document_type are live routes alongside CLIP.",
         "- **Refusal is not enforced by the system.** `MIN_SIMILARITY_UNCALIBRATED` is 0.35 "
         "and gibberish scores ~0.489, so the threshold never fires. Any refusal recorded "
         "here came from the corpus being genuinely empty of matches, not from the guard.",
