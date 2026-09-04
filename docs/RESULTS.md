@@ -233,12 +233,124 @@ the visual index cannot report absence any more than the text index can.
 
 ---
 
-## 7. Methodology findings
+## 7. Fusing heterogeneous retrieval — one root cause, two failures
+
+*Sources: `data/eval-runs/20260904T105531-stage1.md`, `…112353…`, `…112853…`,
+`…113316…`, `…113956…`; plan and pre-registered predictions in
+`prompts/chunk-dominance.md`*
+
+Reciprocal Rank Fusion is used twice in this system: dense with BM25, and text with CLIP.
+It failed both times on this corpus, in ways that look unrelated and are not. **They are
+one root cause with two manifestations**, and naming it that way is the finding.
+
+RRF consumes ranks rather than scores, which is why it is the right tool for combining
+retrievers whose scores are on different scales. But it carries two preconditions that its
+scale-independence does nothing to protect:
+
+1. **The lists are comparably selective.** A document absent from what a list is about
+   should be absent from that list.
+2. **The lists are independently informative.** Agreement between them should be evidence,
+   which requires that agreement was possible and not guaranteed.
+
+Neither failure below is a defect in RRF. Both are its preconditions going unchecked
+against heterogeneous retrieval.
+
+### 7.1 A selective list fused with a non-selective one
+
+Measured 2026-08-26 and reported in §5: fusing the raw CLIP list dropped Recall@1 from
+0.895 to 0.316. Dense and BM25 are both selective — a document unrelated to the query
+appears in neither. **A vector index over a shared embedding space is not: it ranks
+everything.** So documents carrying both OCR text and image vectors appeared in both lists
+for every query and collected an agreement bonus a text-only PDF could never earn.
+Precondition 1 violated, and the agreement term became a property of the document's
+modality rather than of the query.
+
+The fix was to gate on text evidence: consult the image index only where text is weak.
+That restored 0.895 — and created the second failure.
+
+### 7.2 Disjoint lists, where the agreement term can never fire
+
+Text gating drops any image hit whose document the text index already found. **That makes
+the two lists disjoint by construction**, so no document can appear in both and RRF's
+agreement term is unreachable. Precondition 2 violated — this time by the fix for the
+first violation.
+
+With the agreement term dead, `score = 1/(k + rank)` from exactly one list, and fusion
+degenerates into interleaving by rank position. A document at image rank 1 and a document
+at text rank 1 then score **1/61 each: an exact tie.** Python's `sorted` is stable, the
+text side is merged first, and so the text document keeps the position.
+
+The consequence is structural rather than occasional:
+
+> A document found only by the image index beats text rank 2 (1/61 > 1/62) and can never
+> beat text rank 1. **Purely visual retrieval was capped at rank 2** — by insertion order,
+> not by any score.
+
+Both Recall@1 misses sat at rank 2 with score 0.0164, and no threshold explained them
+because no similarity was involved. `0.0164` is not a similarity; it is `1/(60+1)`.
+
+**The fix was to make the tie-break a decision.** Ties now resolve on document-type
+agreement, then on own-modality strength — text against `MIN_SIMILARITY_UNCALIBRATED`,
+images by the gate they already passed — so neither side is ever compared against the
+other's scale, and no constant was introduced. The RRF score stays the primary key, so a
+document that was not tied cannot move.
+
+| variant | Recall@1 | Recall@5 | MRR@10 | refusal |
+|---|---|---|---|---|
+| max-per-chunk, before | 0.900 | 1.000 | 0.950 | 0.500 |
+| **tie-break** | **0.950** | 1.000 | 0.975 | 0.500 |
+| tie-break + chunk damping α=0.05 | 0.850 | 0.950 | 0.906 | 0.500 |
+| tie-break, with q025 added | 0.905 | 1.000 | 0.952 | 0.500 |
+
+### 7.3 The rank-1 cap on purely visual retrieval is NOT fixed — q025 measures it
+
+**q024 passing does not demonstrate visual retrieval reaching rank 1.** It reaches rank 1
+through the *type* route: "my college ID card" classifies as `id_card`, the corpus knows
+`college_id.jpg` is one, and that agreement breaks the tie. Remove the type opinion and the
+cap returns.
+
+**q025 exists to keep that distinction measurable**, and it currently fails:
+
+- Query: *"that rectangular plastic pass with my face printed on it"*
+- Shares no token with `college_id.jpg`; verified not to trigger the `id_card` vocabulary
+  (`identity card`, `student id`, `college id`, `employee id`)
+- So neither filename nor `document_type` is a live route, and only CLIP can answer it
+- **Result: rank 2, score 0.0164 = 1/(60+1)** — the cap, unchanged
+
+Adding it dropped Recall@1 from 0.950 to 0.905. That is the correct direction: the row was
+added *because* the system fails it, and without it the headline number implies a
+capability that does not exist. It should stay failing until the cap is removed rather than
+routed around.
+
+**Open problem.** A principled fix has to let a strong image hit outrank a merely-adequate
+text hit without ever comparing a CLIP similarity to a text one — the constraint that makes
+this hard, and the reason a weighted sum is not available.
+
+### 7.4 Chunk-draw damping: measured, and disabled
+
+Scoring takes the best chunk per document, so a document contributing 40 chunks to the
+window takes 40 draws and one contributing a single chunk takes one. The maximum of *n*
+draws rises with *n* whether or not anything is more relevant, so **corpus share leaks into
+the ranking as if it were evidence.** On this corpus one document holds **353 of 377 chunks
+— 93.6%.**
+
+Damping the per-document score by `log(draws)` at α = 0.05 made things clearly worse:
+Recall@1 0.950 → 0.850, Recall@5 1.000 → 0.950, MRR 0.975 → 0.906. q016 fell from rank 1 to
+rank 8 and out of the top five; q018 fell to rank 2. Both are rows that same calendar
+*legitimately* answers, each on one event buried inside it — the single-decisive-chunk case
+a size penalty is worst at.
+
+**The bias is real and the correction is disabled at 0.0 rather than deleted**, because the
+number is the evidence. The obstacle is that α cannot be chosen here: tuning it against the
+gold set is fitting the test, and **the honest version needs a corpus that is not 93.6% one
+document.** Four of twenty non-refusal rows expect that single file.
+
+## 8. Methodology findings
 
 These are results, not process notes. Each is a measured failure of a technique that looked
 sound, and each generalises past this system.
 
-### 7.1 A pre-registered prediction caught a regression the headline hid
+### 8.1 A pre-registered prediction caught a regression the headline hid
 
 *Source: `PHASE3.md`*
 
@@ -257,7 +369,7 @@ the match.
 q007 specifically, the regression is invisible behind an improved aggregate. Stage 1 is now
 trusted for filters and not for rewriting.
 
-### 7.2 A guard that only fires at 100% is not a guard
+### 8.2 A guard that only fires at 100% is not a guard
 
 *Source: `PHASE3C.md`, `MODEL-RISK.md`*
 
@@ -269,7 +381,7 @@ The threshold is now 25%. **When writing a check against a degradation, ask what
 version of that degradation looks like.** The binary case is the easy one and rarely the one
 that arrives.
 
-### 7.3 Partial coverage hid a ranking defect completely
+### 8.3 Partial coverage hid a ranking defect completely
 
 *Source: `POST-CLIP-FULL.md`, `LOCAL-TEXTGATED.md`*
 
@@ -281,7 +393,7 @@ A system shipped at partial coverage would have carried a latent ranking bug int
 later measurement without a symptom, until enough documents accumulated vectors to tip it —
 with the cause months behind the effect.
 
-### 7.4 An optimisation that was correct when written expired
+### 8.4 An optimisation that was correct when written expired
 
 *Source: `PHASE3B.md`*
 
@@ -295,7 +407,7 @@ never reached stage 1, so there was no type to disagree with.
 **Nothing broke. An assumption expired.** The two vocabularies now derive from one source,
 with a structural test asserting it.
 
-### 7.5 Listing a capability is not access to it
+### 8.5 Listing a capability is not access to it
 
 *Source: `MODEL-RISK.md`*
 
@@ -308,15 +420,44 @@ cleanly and died at inference, a guard that reported healthy on an import check,
 
 ---
 
-## 8. What is not measured
+### 8.6 A diagnosis asserted rather than checked shipped an inert fix
+
+The tie-break in §7.2 was implemented, tested, measured — and changed nothing. Recall@1 came
+back 0.900, exactly as before.
+
+The cause was a claim made one step earlier: *"stage 1 correctly extracts
+`document_type: id_card`, and the boost path discards it."* The second half was true. **The
+first half was never checked.** `qwen2.5:3b` returns `document_type: None` for "my college
+ID card", because the field is not in the schema's `required` list and a small model omits
+what it may omit. The evidence actually in hand was that the *corpus* classifier had typed
+the *file* — never that stage 1 had typed the *query*. Those are different claims about
+different components, and one was substituted for the other.
+
+The assertion was then repeated back in review and agreed with, which added confidence
+without adding evidence. **Nothing in the reasoning caught it. The pre-registered prediction
+did** — "q024 → rank 1" was written down before the run, and the run said 0.900 unchanged.
+A diagnosis that cannot be wrong on paper can still be wrong on the machine.
+
+The eventual fix is also better than the assumed one, and only because the assumption
+failed: the query is classified by the **same vocabulary that classifies documents** — a
+file typed from its filename, a query from its words, one table for both sides, no model in
+the loop. Deterministic, free, and it cannot silently stop working when the model changes.
+That option was never considered while the model was believed to be supplying the signal.
+
+## 9. What is not measured
 
 Stated plainly, because these are the limits an examiner should not have to discover.
 
-**`document_identity` has no gold rows.** The flagship query type — "find my Aadhaar card" —
-is **unmeasured**, because the corpus contains no photograph of an identity card. The
-evaluation gate reports `NOT READY` on type coverage, correctly. Visual search is measured
-at 0.348 similarity on an analogous query (§5), so the capability is demonstrated; the
-flagship query itself is not.
+**`document_identity` is now measured, and half of it fails.** `college_id.jpg` was added
+to the corpus on 2026-09-04 and the gate reports `PASS` for the first time. q024 ("my
+college ID card") reaches rank 1; **q025, which isolates the visual path, returns rank 2**
+(§7.3). So the flagship type is covered, and the capability it is supposed to demonstrate —
+finding a text-free document by appearance alone — is measured as *not working*. That is a
+better position than the previous `NOT READY`, and a worse one than the headline Recall@1
+suggests on its own.
+
+The ID card ingested with **0 text chunks and 1 CLIP embedding**, confirming by measurement
+what PRODUCT.md asserts: Tesseract reads nothing off laminated plastic.
 
 **Visual absence is unsolved.** q022 and q023 are answered rather than refused (§6). No
 mechanism in this system can report that a *picture* is absent.
