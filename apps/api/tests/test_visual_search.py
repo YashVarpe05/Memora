@@ -152,3 +152,154 @@ async def test_nothing_matching_either_index_is_still_refused(api, doubles):
         "a query matching neither index must still refuse - otherwise the visual "
         "list makes refusal structurally impossible"
     )
+
+
+# --- the rank-1 cap on image-only documents ---
+
+
+def _text_result(memory_id, *, raw_score: float, document_type=None):
+    from memora.services.search import DocumentResult
+
+    return DocumentResult(
+        rank=1,
+        memory_id=memory_id,
+        title="t",
+        filename="t.ics",
+        source_type="calendar",
+        score=raw_score,
+        raw_score=raw_score,
+        snippet="s",
+        matched_chunk_id=None,
+        page=None,
+        byte_size=1,
+        has_thumbnail=False,
+        document_type=document_type,
+    )
+
+
+def _image_hit(memory_id, *, document_type=None):
+    from memora.repositories.image_embedding import ImageHit
+
+    return ImageHit(
+        memory_id=memory_id,
+        similarity=0.3,
+        title="card",
+        filename="college_id.jpg",
+        source_type="image",
+        byte_size=1,
+        has_thumbnail=True,
+        document_type=document_type,
+    )
+
+
+def test_an_image_only_document_can_reach_rank_one():
+    """The cap this exists to remove.
+
+    The two lists are disjoint by construction, so RRF's agreement bonus never fires and
+    every document scores 1/(k+rank) from one list. An image at rank 1 therefore TIES a
+    text document at rank 1 exactly, and a stable sort gave the position to whichever was
+    merged first - always text. A document findable only by its appearance could beat
+    text rank 2 and never text rank 1, so visual search was capped at rank 2 by an
+    insertion order nobody chose. Both Recall@1 misses sat there.
+    """
+    import uuid
+
+    from memora.services.search import fuse_results
+
+    calendar, card = uuid.uuid4(), uuid.uuid4()
+    ranked = fuse_results(
+        [_text_result(calendar, raw_score=0.62)],
+        [_image_hit(card, document_type="id_card")],
+        limit=5,
+        wanted_type="id_card",
+    )
+
+    assert ranked[0].memory_id == card, "type agreement must decide the tie"
+    assert ranked[1].memory_id == calendar
+
+
+def test_a_tie_without_a_type_opinion_is_left_alone():
+    """No opinion, no reordering. The tie-break may only fire on evidence it has."""
+    import uuid
+
+    from memora.services.search import fuse_results
+
+    calendar, photo = uuid.uuid4(), uuid.uuid4()
+    ranked = fuse_results(
+        [_text_result(calendar, raw_score=0.55)],
+        [_image_hit(photo)],
+        limit=5,
+        wanted_type=None,
+    )
+
+    assert ranked[0].memory_id == calendar
+
+
+def test_weak_text_evidence_loses_the_tie_to_a_strong_image():
+    """Each side judged against ITS OWN threshold - text against
+    MIN_SIMILARITY_UNCALIBRATED, images by the gate they already passed. No CLIP
+    similarity is ever compared with a text one."""
+    import uuid
+
+    from memora.services.search import fuse_results
+
+    weak_text, photo = uuid.uuid4(), uuid.uuid4()
+    ranked = fuse_results(
+        [_text_result(weak_text, raw_score=0.20)],
+        [_image_hit(photo)],
+        limit=5,
+        wanted_type=None,
+    )
+
+    assert ranked[0].memory_id == photo
+
+
+def test_a_document_that_is_not_tied_never_moves():
+    """The guard on the whole change. The RRF score stays the primary key, so a
+    tie-break cannot reorder anything that was not tied - otherwise the ablation cannot
+    attribute a result to it."""
+    import uuid
+
+    from memora.services.search import fuse_results
+
+    first, second, card = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    ranked = fuse_results(
+        [_text_result(first, raw_score=0.9), _text_result(second, raw_score=0.8)],
+        [_image_hit(card, document_type="id_card")],
+        limit=5,
+        wanted_type="id_card",
+    )
+
+    # The image ties text rank 1 and wins on type; text rank 2 scores 1/62 and stays last.
+    assert ranked[0].memory_id == card
+    assert ranked[-1].memory_id == second
+
+
+def test_stage_one_document_type_reaches_scoring():
+    """It used to stop at should_refuse. A query for an ID card gained nothing from the
+    corpus knowing which document IS an ID card."""
+    import uuid
+
+    from memora.repositories.chunk import ChunkHit
+    from memora.services.search import Boosts, boosted_score
+
+    hit = ChunkHit(
+        chunk_id=uuid.uuid4(),
+        memory_id=uuid.uuid4(),
+        text="t",
+        contextual_prefix="",
+        page=None,
+        similarity=0.5,
+        title="t",
+        filename="college_id.jpg",
+        source_type="image",
+        byte_size=1,
+        has_thumbnail=True,
+        document_type="id_card",
+    )
+
+    matched = boosted_score(hit, Boosts(document_type="id_card"))
+    ignored = boosted_score(hit, Boosts(document_type="marksheet"))
+
+    assert matched > 0.5, "a type match must raise the score"
+    assert ignored == 0.5, "a mismatch must not penalise an otherwise good document"

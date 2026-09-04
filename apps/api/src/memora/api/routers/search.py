@@ -20,7 +20,7 @@ from memora.config import get_settings
 from memora.repositories.chunk import ChunkRepository
 from memora.repositories.image_embedding import ImageEmbeddingRepository, ImageHit
 from memora.repositories.memory import MemoryRepository
-from memora.services.document_type import should_refuse
+from memora.services.document_type import classify, should_refuse
 from memora.services.embedding import Embedder, build_embedder
 from memora.services.image_embedding import (
     ImageEmbedder,
@@ -188,6 +188,7 @@ async def search(
 
     boosts = Boosts(
         source_types=filters.source_types,
+        document_type=filters.document_type,
         sender=filters.sender,
         after=filters.after,
         before=filters.before,
@@ -241,7 +242,23 @@ async def search(
         and not has_weak_image_evidence([hit.similarity])
     ]
     if image_evidence:
-        ranked = fuse_results(ranked, image_evidence, payload.limit)
+        # Stage 1 is asked first and usually declines: qwen2.5:3b returns
+        # document_type=None for "my college ID card" even though `id_card` is in the
+        # schema enum, because the field is not in `required` and a 3B model omits
+        # what it may omit. Measured, not assumed - the tie-break shipped inert on
+        # that assumption once already.
+        #
+        # So the query is classified by the SAME vocabulary that classifies documents.
+        # A corpus file is typed from its filename; a query is typed from its words;
+        # one table, both sides, no model in the loop. Deterministic and free.
+        #
+        # Ranking only. `filters.document_type` still drives refusal on its own, so
+        # this cannot talk the system into or out of refusing - refusal is measured
+        # separately and must not move because a ranking signal improved.
+        wanted_type = filters.document_type or classify(text=payload.query)
+        ranked = fuse_results(
+            ranked, image_evidence, payload.limit, wanted_type=wanted_type
+        )
 
     # Raw similarity, not boosted - a filter guess must not talk the system out of
     # refusing. See boosted_score in services/search.py.

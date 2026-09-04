@@ -18,6 +18,7 @@ from memora.repositories.chunk import ChunkHit
 
 if TYPE_CHECKING:
     from memora.repositories.image_embedding import ImageHit
+    from memora.services.fusion import FusedDocument
 
 # --- the fetch window -------------------------------------------------------------
 #
@@ -80,13 +81,24 @@ class Boosts:
     """What stage 1 asks for. Every field optional; empty means no opinion."""
 
     source_types: tuple[str, ...] = ()
+    # The kind of document the query asks for. Stage 1 has always extracted this and
+    # nothing ever ranked on it: it reached `should_refuse` and stopped there. So a
+    # query for an ID card gained nothing from the corpus knowing which document IS
+    # an ID card - the single most identifying signal available, computed and unused.
+    document_type: str | None = None
     sender: str | None = None
     after: object | None = None
     before: object | None = None
 
     @property
     def is_empty(self) -> bool:
-        return not (self.source_types or self.sender or self.after or self.before)
+        return not (
+            self.source_types
+            or self.document_type
+            or self.sender
+            or self.after
+            or self.before
+        )
 
 
 def boosted_score(hit: ChunkHit, boosts: Boosts) -> float:
@@ -104,6 +116,11 @@ def boosted_score(hit: ChunkHit, boosts: Boosts) -> float:
 
     if boosts.source_types:
         score += FILTER_BONUS if hit.source_type in boosts.source_types else -FILTER_BONUS
+
+    # Rewarded, never penalised. Most documents carry no type at all, and subtracting
+    # from every untyped document would make the bonus a penalty on the corpus.
+    if boosts.document_type and hit.document_type == boosts.document_type:
+        score += FILTER_BONUS
 
     if boosts.sender:
         sender = (hit.sender or "").lower()
@@ -139,6 +156,10 @@ class DocumentResult:
     page: int | None
     byte_size: int
     has_thumbnail: bool
+    # Carried so the tie-break can ask a TEXT document the same question it asks an
+    # image one. Reading it off only the image side would make type agreement a
+    # privilege of one modality, which is the asymmetry this whole change removes.
+    document_type: str | None = None
     # Set when the file is no longer on the device. The memory is still findable -
     # forgetting a document because it was tidied away is the failure this product
     # exists to fix - so the result carries the fact rather than being dropped.
@@ -242,16 +263,73 @@ def to_results(scored: list[tuple[ChunkHit, float]]) -> list[DocumentResult]:
             page=hit.page,
             byte_size=hit.byte_size,
             has_thumbnail=hit.has_thumbnail,
+            document_type=hit.document_type,
             removed_at=hit.removed_at,
         )
         for index, (hit, score) in enumerate(scored, start=1)
     ]
 
 
+def _resolve_ties(
+    fused: list[FusedDocument],
+    by_id: dict[UUID, DocumentResult],
+    image_by_id: dict[UUID, object],
+    wanted_type: str | None,
+) -> list[FusedDocument]:
+    """Decide exact RRF ties instead of letting insertion order decide them.
+
+    **The two lists are disjoint by construction** - the caller drops any image hit whose
+    document the text index already found - so RRF's agreement bonus can never fire and
+    fusion degenerates to interleaving by rank. Every document scores 1/(k + rank) from
+    exactly one list, which means a document at image rank 1 ties a document at text rank
+    1 exactly, and `sorted` being stable handed the position to whichever was merged
+    first. That was always the text side.
+
+    The consequence was structural rather than occasional: an image-only document beat
+    text rank 2 (1/61 > 1/62) but could never beat text rank 1, so **every document
+    findable only by its appearance was capped at rank 2**. Both Recall@1 misses sat
+    there, and no threshold or score explained it because no score was involved.
+
+    Two tie-breaks, in order, neither of which compares a CLIP similarity with a text one:
+
+    1. **Type agreement.** Stage 1 already says what kind of document the query wants, and
+       the corpus already says what kind each document is. Matching them is the most
+       identifying signal available for "my college ID card", and it was computed and
+       discarded before this.
+    2. **Own-modality strength.** Each side is judged against ITS OWN threshold - text
+       against MIN_SIMILARITY_UNCALIBRATED, images by the gate they already passed - so a
+       tie against weak text evidence goes to the image. No cross-scale comparison, and no
+       new constant.
+
+    Confined to exact ties by construction: the RRF score is the primary key, rounded so
+    that equal scores compare equal, and everything else is a secondary key. A document
+    that is not tied cannot move.
+    """
+    from memora.services.retrieval import MIN_SIMILARITY_UNCALIBRATED
+
+    def key(doc: FusedDocument) -> tuple[float, int, int]:
+        text_hit = by_id.get(doc.memory_id)
+        image_hit = image_by_id.get(doc.memory_id)
+        hit = text_hit if text_hit is not None else image_hit
+
+        agrees = int(bool(wanted_type) and hit.document_type == wanted_type)
+        # Image hits reached here only by passing has_weak_image_evidence, so they are
+        # strong on their own scale by definition. Text is asked the same question on its.
+        strong = (
+            int(text_hit.raw_score >= MIN_SIMILARITY_UNCALIBRATED)
+            if text_hit is not None
+            else 1
+        )
+        return (round(doc.score, 9), agrees, strong)
+
+    return sorted(fused, key=key, reverse=True)
+
+
 def fuse_results(
     text_results: list[DocumentResult],
     image_hits: list[ImageHit],
     limit: int,
+    wanted_type: str | None = None,
 ) -> list[DocumentResult]:
     """Merge the image list into the text list by rank, and renumber.
 
@@ -272,6 +350,7 @@ def fuse_results(
         text_order=[r.memory_id for r in text_results],
         image_order=[h.memory_id for h in image_hits],
     )
+    fused = _resolve_ties(fused, by_id, image_by_id, wanted_type)
 
     merged: list[DocumentResult] = []
     for position, doc in enumerate(fused[:limit], start=1):
@@ -298,6 +377,7 @@ def fuse_results(
                 page=None,
                 byte_size=hit.byte_size,
                 has_thumbnail=hit.has_thumbnail,
+                document_type=hit.document_type,
                 removed_at=hit.removed_at,
             )
         )

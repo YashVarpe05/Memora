@@ -1,6 +1,6 @@
 # Stage 1 — filtered retrieval
 
-Recorded 2026-09-04T10:55:31+00:00, commit `436d7d2`.
+Recorded 2026-09-04T11:28:53+00:00, commit `d229496`.
 
 **Query understanding is ON.** Compare against `BASELINE.md`, which is the
 same corpus and gold set with stage 1 disabled.
@@ -16,9 +16,9 @@ same corpus and gold set with stage 1 disabled.
 
 | metric | value |
 |---|---|
-| **Recall@1** | **0.900** (18/20) |
+| **Recall@1** | **0.950** (19/20) |
 | Recall@5 | 1.000 |
-| MRR@10 | 0.950 |
+| MRR@10 | 0.975 |
 | Refusal accuracy | 0.500 (2/4) |
 
 ## By query type
@@ -27,7 +27,7 @@ same corpus and gold set with stage 1 disabled.
 |---|---|---|
 | `content_semantic` | 2 | 2 |
 | `disambiguation` | 4 | 4 |
-| `document_identity` | 0 | 1 |
+| `document_identity` | 1 | 1 |
 | `entity_resolution` | 4 | 4 |
 | `metadata_only` | 3 | 3 |
 | `must_refuse` | 2 | 4 |
@@ -61,7 +61,7 @@ same corpus and gold set with stage 1 disabled.
 | q021 | `must_refuse` | refused | my college fee receipt | - |
 | q022 | `must_refuse` | **ANSWERED** | the photo of me at the Taj Mahal | WhatsApp Image 2026-06-13 at 16.58 |
 | q023 | `must_refuse` | **ANSWERED** | the group photo from the farewell party | yashvarpe2005@gmail.com.ics |
-| q024 | `document_identity` | 2 | my college ID card | yashvarpe2005@gmail.com.ics |
+| q024 | `document_identity` | 1 | my college ID card | college_id.jpg |
 
 ## Where the failures went
 
@@ -69,13 +69,13 @@ Most frequent top result:
 
 | file | times ranked first |
 |---|---|
-| `yashvarpe2005@gmail.com.ics` | 6 |
+| `yashvarpe2005@gmail.com.ics` | 5 |
 | `WhatsApp Image 2026-06-13 at 16.58.51.jpeg` | 3 |
 | `WhatsApp Image 2026-07-03 at 01.24.47 (1).jpeg` | 3 |
 | `mail.pdf` | 2 |
 | `WhatsApp Image 2026-07-03 at 01.24.48.jpeg` | 2 |
 
-`yashvarpe2005@gmail.com.ics` is the top result for 6 of 24 queries (25%).
+`yashvarpe2005@gmail.com.ics` is the top result for 5 of 24 queries (21%).
 
 ## Stage 1 calls skipped
 
@@ -98,7 +98,7 @@ Skipped means the query carried no source-type word, no sender and no date, so s
 
 An extra model call on every search. Measured across these queries:
 
-- median 6342 ms, range 4412-6795 ms
+- median 6357 ms, range 4533-7899 ms
 - added to every search, before any retrieval happens
 
 ## Top-score distribution
@@ -109,6 +109,7 @@ no single threshold separates them and refusal needs a different signal.
 
 | score | id | type |
 |---|---|---|
+| 0.016 | q024 | `document_identity` |
 | 0.494 | q019 | `visual_recall` |
 | 0.530 | q022 | `must_refuse` |
 | 0.537 | q023 | `must_refuse` |
@@ -116,7 +117,6 @@ no single threshold separates them and refusal needs a different signal.
 | 0.599 | q017 | `metadata_only` |
 | 0.603 | q016 | `temporal_resolution` |
 | 0.606 | q001 | `visual_recall` |
-| 0.615 | q024 | `document_identity` |
 | 0.619 | q010 | `disambiguation` |
 | 0.622 | q009 | `entity_resolution` |
 | 0.638 | q003 | `disambiguation` |

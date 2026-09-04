@@ -35,6 +35,9 @@ class ChunkHit:
     # Null unless a full device scan stopped finding the file. Carried through
     # retrieval so a result can say the file is gone rather than fail to open.
     removed_at: object | None = None
+    # What kind of document this is. Stage 1 already extracts the type a query asks
+    # for; until now nothing compared the two when ranking.
+    document_type: str | None = None
     sender: str | None = None
     occurred_at: object | None = None
 
@@ -77,6 +80,7 @@ class ChunkRepository(BaseRepository[Chunk]):
                 Memory.byte_size,
                 Memory.has_thumbnail,
                 Memory.removed_at,
+                Memory.document_type,
                 Memory.sender,
                 Chunk.occurred_at.label("chunk_at"),
             )
@@ -98,6 +102,7 @@ class ChunkRepository(BaseRepository[Chunk]):
                 byte_size=byte_size,
                 has_thumbnail=has_thumbnail,
                 removed_at=removed_at,
+                document_type=document_type,
                 sender=sender,
                 occurred_at=chunk_at,
             )
@@ -110,6 +115,7 @@ class ChunkRepository(BaseRepository[Chunk]):
                 byte_size,
                 has_thumbnail,
                 removed_at,
+                document_type,
                 sender,
                 chunk_at,
             ) in rows

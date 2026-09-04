@@ -30,6 +30,7 @@ class ImageHit:
     # cards from either, so a field on one and not the other crashes only on the path
     # where an image outranks every chunk - the rarest path, found last.
     removed_at: object | None = None
+    document_type: str | None = None
     sender: str | None = None
 
 
@@ -62,6 +63,7 @@ class ImageEmbeddingRepository(BaseRepository[ImageEmbedding]):
                 Memory.has_thumbnail,
                 Memory.sender,
                 Memory.removed_at,
+                Memory.document_type,
             )
             .order_by(distance)
             .limit(k)
@@ -78,6 +80,7 @@ class ImageEmbeddingRepository(BaseRepository[ImageEmbedding]):
                 has_thumbnail=row[6],
                 sender=row[7],
                 removed_at=row[8],
+                document_type=row[9],
             )
             for row in rows
         ]
