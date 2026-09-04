@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DiscoveredFile, PermissionState } from '@memora/core';
 
 import { AndroidFileDiscovery } from '@/platform/discovery.native';
-import { apiFetch } from '@/platform/api';
+import { apiFetch, clearPairing } from '@/platform/api';
 
 /**
  * Scanning the phone for documents it already holds, and sending them to the laptop.
@@ -74,11 +74,13 @@ function writeMarker(value: number): void {
   }
 }
 
+type UploadOutcome = 'uploaded' | 'duplicate' | 'failed' | 'unauthorized';
+
 /** One file, read and posted. Returns what happened so the counters stay honest. */
 async function upload(
   discovery: AndroidFileDiscovery,
   file: DiscoveredFile,
-): Promise<'uploaded' | 'duplicate' | 'failed'> {
+): Promise<UploadOutcome> {
   try {
     const bytes = await discovery.read(file.path);
     const form = new FormData();
@@ -88,6 +90,12 @@ async function upload(
     form.append('device_path', file.path);
 
     const response = await apiFetch('/api/uploads', { method: 'POST', body: form });
+    // 401 is not a bad file, it is a dead pairing, and lumping the two together hid a
+    // total lockout behind a plausible number. The API restarted, its in-memory pairing
+    // store emptied, and the scan cheerfully reported "326 skipped" while every single
+    // upload was being refused. A per-file failure and a broken connection must never
+    // land in the same counter.
+    if (response.status === 401) return 'unauthorized';
     if (!response.ok) return 'failed';
 
     // The upload route returns the existing memory when the hash already matched, so a
@@ -110,29 +118,86 @@ export function useDeviceScan() {
   const discovery = useRef(new AndroidFileDiscovery());
 
   /**
-   * MANAGE_EXTERNAL_STORAGE is granted on a full-screen Settings page with NO result
-   * callback — the app is simply resumed. So the grant is detected by re-checking when
-   * the document becomes visible again. Without this the app sits on "waiting for
-   * permission" forever while the permission is, in fact, granted.
+   * Re-read the permission, and never let a bridge failure look like a denial.
+   *
+   * The rejection this catch exists for was silent for an entire debugging session. The
+   * native plugin was not registered, so every call rejected with "not implemented"; the
+   * caller discarded the rejection with `void`, the screen stayed on "waiting for file
+   * access", and the visible symptom accused Android's permission model of a fault that
+   * was six lines of missing Java. A plugin that is absent and a permission that is
+   * refused are different problems and must not produce the same screen.
    */
-  useEffect(() => {
-    if (phase !== 'permission') return;
-    const recheck = async () => {
-      if (document.visibilityState !== 'visible') return;
+  const recheckPermission = useCallback(async () => {
+    try {
       const state = await discovery.current.checkPermission();
       setPermission(state);
       if (state === 'granted') setPhase('choosing');
+      return state;
+    } catch (err) {
+      setError(
+        `The app cannot reach its file-scanning plugin: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`,
+      );
+      setPhase('error');
+      return 'denied' as PermissionState;
+    }
+  }, []);
+
+  /**
+   * MANAGE_EXTERNAL_STORAGE is granted on a full-screen Settings page with NO result
+   * callback — the app is simply resumed — so the grant has to be discovered rather than
+   * delivered.
+   *
+   * **This polls rather than listening, because listening did not work.** The first
+   * version hung on `visibilitychange`, which a Capacitor WebView does not reliably fire
+   * when another Android activity comes and goes. Observed on device: the permission was
+   * granted in Settings, `appops` confirmed `allow`, and this screen sat on "waiting"
+   * indefinitely — precisely the failure the plan predicted, arriving through the event
+   * that was supposed to prevent it.
+   *
+   * A poll cannot miss an event that never fires. It runs only while this one screen is
+   * open, costs a single AppOps lookup per tick, and stops the moment the phase changes.
+   * The visibility listener is kept as the fast path when it does fire.
+   */
+  useEffect(() => {
+    if (phase !== 'permission') return;
+
+    let stopped = false;
+    const check = () => {
+      if (stopped) return;
+      void recheckPermission();
     };
-    document.addEventListener('visibilitychange', recheck);
-    void recheck();
-    return () => document.removeEventListener('visibilitychange', recheck);
-  }, [phase]);
+
+    const timer = setInterval(check, 1500);
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('focus', check);
+    check();
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', check);
+      window.removeEventListener('focus', check);
+    };
+  }, [phase, recheckPermission]);
 
   const requestPermission = useCallback(async () => {
     setPhase('permission');
-    const state = await discovery.current.requestPermission();
-    setPermission(state);
-    if (state === 'granted') setPhase('choosing');
+    try {
+      const state = await discovery.current.requestPermission();
+      setPermission(state);
+      if (state === 'granted') setPhase('choosing');
+    } catch (err) {
+      // Same reason as above: say the plugin is missing rather than implying the user
+      // refused something they were never asked for.
+      setError(
+        `The app cannot reach its file-scanning plugin: ${
+          err instanceof Error ? err.message : 'unknown error'
+        }`,
+      );
+      setPhase('error');
+    }
   }, []);
 
   const start = useCallback(async (mode: ScanMode) => {
@@ -149,7 +214,9 @@ export function useDeviceScan() {
 
     let total = 0;
     try {
-      total = await discovery.current.count();
+      // Same `since` the iteration will use, or the denominator describes a
+      // different scan from the one running.
+      total = await discovery.current.count({ since: marker });
     } catch {
       // A missing denominator degrades progress to a bare count. It does not stop a scan.
       total = 0;
@@ -161,7 +228,15 @@ export function useDeviceScan() {
     const inFlight = new Set<Promise<void>>();
     let seen = 0;
 
-    const track = (result: 'uploaded' | 'duplicate' | 'failed', name: string) =>
+    let lockedOut = false;
+
+    const track = (result: UploadOutcome, name: string) => {
+      if (result === 'unauthorized') {
+        lockedOut = true;
+        cancelled.current = true;
+        return;
+      }
+      return
       setProgress((p) => ({
         ...p,
         seen: p.seen + 1,
@@ -171,6 +246,7 @@ export function useDeviceScan() {
         currentName: name,
         elapsedMs: performance.now() - startedAt,
       }));
+    };
 
     try {
       const source =
@@ -195,6 +271,18 @@ export function useDeviceScan() {
         if (inFlight.size >= CONCURRENCY) await Promise.race(inFlight);
       }
       await Promise.all(inFlight);
+
+      if (lockedOut) {
+        // The token is gone, so nothing was indexed and nothing can be reconciled.
+        // Dropping the stored pairing sends the app back to the QR screen by itself.
+        clearPairing();
+        setError(
+          'Your computer no longer recognises this phone - it has probably been ' +
+            'restarted. Nothing was indexed. Scan the QR code again to reconnect.',
+        );
+        setPhase('error');
+        return;
+      }
 
       if (highest > 0) writeMarker(highest);
 
@@ -229,6 +317,7 @@ export function useDeviceScan() {
     progress,
     error,
     requestPermission,
+    recheckPermission,
     start,
     cancel,
   };

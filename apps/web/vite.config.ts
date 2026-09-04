@@ -10,6 +10,11 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // No injected <script src="/registerSW.js">. That tag is unconditional, and
+      // `cap sync` copies this same index.html into the APK - so the native build
+      // registered a service worker that then served a stale bundle after every
+      // reinstall. src/platform/serviceWorker.ts registers it for browsers only.
+      injectRegister: null,
       includeAssets: ['icon.svg'],
       manifest: {
         name: 'Memora AI',

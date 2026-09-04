@@ -22,6 +22,13 @@ const config: CapacitorConfig = {
   appName: 'Memora',
   webDir: 'dist',
 
+  // Capacitor's debug bridge logs every plugin result. `read` resolves with a file's
+  // full base64 bytes, so a scan wrote the contents of the user's documents into logcat -
+  // megabytes per file of log spam, and every scanned photo and PDF readable by anything
+  // that can read system logs. Neither is acceptable for an app whose entire claim is that
+  // documents stay on devices the user owns.
+  loggingBehavior: 'none',
+
   android: {
     // The phone talks to the laptop over a hotspot, which is plain HTTP on a LAN
     // address. Android blocks cleartext by default; this permits it for the local

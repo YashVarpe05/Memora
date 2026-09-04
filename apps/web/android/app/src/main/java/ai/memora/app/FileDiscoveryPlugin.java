@@ -16,11 +16,13 @@
 
 package ai.memora.app;
 
+import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.provider.Settings;
@@ -211,15 +213,11 @@ public class FileDiscoveryPlugin extends Plugin {
         // SECONDS, measured — see the header. The interface speaks milliseconds.
         long sinceSeconds = since / 1000L;
 
-        String order = MediaStore.Files.FileColumns.DATE_MODIFIED + " DESC LIMIT "
-            + limit + " OFFSET " + offset;
-
         JSArray files = new JSArray();
         Uri collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL);
 
-        try (Cursor cursor = getContext().getContentResolver()
-                .query(collection, PROJECTION, selection(),
-                       selectionArgs(maxBytes, sinceSeconds), order)) {
+        try (Cursor cursor = pagedQuery(collection, selection(),
+                selectionArgs(maxBytes, sinceSeconds), limit, offset)) {
             if (cursor != null) {
                 int idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID);
                 int nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME);
@@ -252,6 +250,37 @@ public class FileDiscoveryPlugin extends Plugin {
         result.put("files", files);
         result.put("done", files.length() < limit);
         call.resolve(result);
+    }
+
+    /**
+     * A page of rows, newest first.
+     *
+     * **`LIMIT` cannot go in the sort-order string.** Appending
+     * `" DESC LIMIT 100 OFFSET 0"` is the classic recipe and MediaStore rejected it
+     * outright on Android 16 with `Invalid token LIMIT` — the whole scan failed on its
+     * first query. Android 11 (API 30) moved paging to query arguments and started
+     * validating the sort order, so the old form is not merely discouraged, it throws.
+     *
+     * The legacy path is kept for API < 30, where the Bundle constants do not exist and
+     * the string form is the only option.
+     */
+    private Cursor pagedQuery(Uri collection, String selection, String[] args,
+                              int limit, int offset) {
+        ContentResolver resolver = getContext().getContentResolver();
+        String sort = MediaStore.Files.FileColumns.DATE_MODIFIED + " DESC";
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            Bundle query = new Bundle();
+            query.putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection);
+            query.putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, args);
+            query.putString(ContentResolver.QUERY_ARG_SQL_SORT_ORDER, sort);
+            query.putInt(ContentResolver.QUERY_ARG_LIMIT, limit);
+            query.putInt(ContentResolver.QUERY_ARG_OFFSET, offset);
+            return resolver.query(collection, PROJECTION, query, null);
+        }
+
+        return resolver.query(collection, PROJECTION, selection, args,
+            sort + " LIMIT " + limit + " OFFSET " + offset);
     }
 
     /** Bytes for one file, base64 for the bridge. Called only after filtering and dedup. */

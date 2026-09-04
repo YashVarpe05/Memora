@@ -24,7 +24,7 @@ export class WebFileDiscovery implements FileDiscovery {
     // Intentionally empty.
   }
 
-  async count(_options?: ScanOptions): Promise<number> {
+  async count(_options?: ScanOptions & { since?: number }): Promise<number> {
     return 0;
   }
 

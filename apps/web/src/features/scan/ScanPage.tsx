@@ -1,4 +1,4 @@
-import { CheckCircle2, FolderSearch, Loader2, Rocket, ShieldAlert } from 'lucide-react';
+import { CheckCircle2, FolderSearch, Loader2, RefreshCw, Rocket, ShieldAlert } from 'lucide-react';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -85,13 +85,19 @@ export function ScanPage() {
             back here — this screen updates by itself.
           </span>
         </div>
-        {/* There is no callback from that Settings page. The hook re-checks on resume, so
-            "denied" here means checked-and-denied, not "not answered yet". */}
+        {/* The hook polls while this screen is open. This button exists anyway: the
+            automatic check already failed once on a real device, and a screen with no way
+            forward is worse than one extra tap. */}
+        <Button className="min-h-12" onClick={() => void scan.recheckPermission()}>
+          <RefreshCw className="size-4" aria-hidden /> I&apos;ve turned it on
+        </Button>
+
         {scan.permission === 'denied' && (
           <p className="text-sm text-warn">
-            Access is still off. Without it Memora cannot see the files on this phone.
+            Access still reads as off. If you just turned it on, tap the button above.
           </p>
         )}
+
         <Button variant="subtle" onClick={() => scan.setPhase('idle')}>
           Cancel
         </Button>
@@ -145,13 +151,24 @@ export function ScanPage() {
             ) : (
               <Loader2 className="size-5 animate-spin text-accent" aria-hidden />
             )}
-            {done ? 'Finished' : 'Indexing…'}
+            {done ? (total === 0 ? 'Already up to date' : 'Finished') : 'Indexing…'}
           </h1>
-          <p className="text-sm tabular-nums text-ink-muted">
-            {total > 0 ? `${seen.toLocaleString()} of ${total.toLocaleString()} files` : `${seen.toLocaleString()} files`}
-            {' · '}
-            {(elapsedMs / 1000).toFixed(0)}s
-          </p>
+          {/* "0 of 500 files" for a rescan with nothing new reads as a failure. When
+              there is genuinely nothing to do, say that instead of showing an empty bar. */}
+          {done && total === 0 ? (
+            <p className="text-sm text-ink-muted">
+              Every file on this phone has already been indexed. New ones will be picked
+              up next time you scan.
+            </p>
+          ) : (
+            <p className="text-sm tabular-nums text-ink-muted">
+              {total > 0
+                ? `${seen.toLocaleString()} of ${total.toLocaleString()} files`
+                : `${seen.toLocaleString()} files`}
+              {' · '}
+              {(elapsedMs / 1000).toFixed(0)}s
+            </p>
+          )}
         </div>
 
         <div className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken">

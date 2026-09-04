@@ -73,7 +73,7 @@ export interface FileDiscovery {
    * scan of thousands of files is indistinguishable from a hang, and an examiner
    * watching one cannot tell whether the system is working.
    */
-  count(options?: ScanOptions): Promise<number>;
+  count(options?: ScanOptions & { since?: number }): Promise<number>;
 
   /** Read one file's bytes, once it has passed filtering and dedup. */
   read(path: string): Promise<Uint8Array>;

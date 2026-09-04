@@ -85,10 +85,17 @@ export class AndroidFileDiscovery implements FileDiscovery {
     }
   }
 
-  /** The denominator for progress. Same selection as scan(), computed in SQL. */
-  async count(options?: ScanOptions): Promise<number> {
+  /**
+   * The denominator for progress.
+   *
+   * `since` matters and was wrong: this counted from 0 while the scan iterated from the
+   * incremental marker, so a rescan with nothing new reported "0 of 500 files" and looked
+   * broken. A denominator that answers a different question from the numerator is not a
+   * denominator.
+   */
+  async count(options?: ScanOptions & { since?: number }): Promise<number> {
     const { total } = await Native.count({
-      since: 0,
+      since: options?.since ?? 0,
       maxBytes: options?.maxBytes ?? DEFAULT_SCAN.maxBytes,
     });
     return total;
