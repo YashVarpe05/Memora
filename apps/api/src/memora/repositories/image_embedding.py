@@ -26,6 +26,10 @@ class ImageHit:
     source_type: str
     byte_size: int
     has_thumbnail: bool
+    # Same field as ChunkHit carries. The shapes must not diverge: fusion builds result
+    # cards from either, so a field on one and not the other crashes only on the path
+    # where an image outranks every chunk - the rarest path, found last.
+    removed_at: object | None = None
     sender: str | None = None
 
 
@@ -57,6 +61,7 @@ class ImageEmbeddingRepository(BaseRepository[ImageEmbedding]):
                 Memory.byte_size,
                 Memory.has_thumbnail,
                 Memory.sender,
+                Memory.removed_at,
             )
             .order_by(distance)
             .limit(k)
@@ -72,6 +77,7 @@ class ImageEmbeddingRepository(BaseRepository[ImageEmbedding]):
                 byte_size=row[5],
                 has_thumbnail=row[6],
                 sender=row[7],
+                removed_at=row[8],
             )
             for row in rows
         ]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from memora.api.deps import CurrentUserDep, DbDep
@@ -84,6 +84,10 @@ OcrDep = Annotated[OcrClient, Depends(get_ocr)]
 ImageEmbedderDep = Annotated[ImageEmbedder, Depends(get_image_embedder)]
 BlobStoreDep = Annotated[BlobStore, Depends(get_blob_store)]
 DocumentUpload = Annotated[UploadFile, File(...)]
+# Where the device scan found this file. Absent for a hand-uploaded document, which is
+# why it is Optional rather than defaulted to "" - null means "not from a device" and
+# empty string would make every browser upload look like a device file that vanished.
+DevicePath = Annotated[str | None, Form()]
 
 
 @router.post("/uploads", response_model=UploadResponse, status_code=status.HTTP_201_CREATED)
@@ -96,6 +100,7 @@ async def upload_document(
     ocr: OcrDep,
     image_embedder: ImageEmbedderDep,
     blobs: BlobStoreDep,
+    device_path: DevicePath = None,
 ) -> UploadResponse:
     data = await file.read()
     filename = file.filename or "upload"
@@ -261,6 +266,7 @@ async def upload_document(
         document_type=document_type,
         sender=extracted.sender,
         occurred_at=extracted.occurred_at,
+        device_path=device_path,
     )
     await chunks.add_many(
         memory.id,

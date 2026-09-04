@@ -4,14 +4,16 @@ import type { DiscoveredFile, FileDiscovery, PermissionState, ScanOptions } from
 import { DEFAULT_SCAN } from '@memora/core';
 
 /**
- * UNVERIFIED ON DEVICE. No APK has been built and no phone has run this.
+ * PARTLY VERIFIED ON DEVICE 2026-09-03 — Galaxy S23 FE, Android 16 (SDK 36).
  *
- * TO CHECK ON A REAL PHONE:
- *  - whether requestPermission's Settings round-trip ends in 'granted' (there is no
- *    callback; the app just resumes, so checkPermission is called again on resume)
- *  - whether MediaStore returns PDFs from Downloads/ and not only gallery images
- *  - how long a scan of a real gallery takes
- *  - whether reading by content:// URI works on the target API level
+ * Answered against the real MediaStore, by query rather than by reasoning:
+ *  - DATE_MODIFIED is in SECONDS (measured 1716896518, ten digits). The interface is
+ *    epoch milliseconds, so the plugin divides going in and multiplies coming out.
+ *  - MediaStore.Files DOES return files outside the media collections: 832 PDFs, 132 of
+ *    them in Download/ and 2 in Documents/DigiLocker/Issued/.
+ *
+ * STILL UNVERIFIED: the MANAGE_EXTERNAL_STORAGE Settings round-trip, reading bytes by
+ * content:// URI, and end-to-end upload timing.
  */
 
 interface NativeScanPage {
@@ -29,6 +31,7 @@ interface FileDiscoveryNative {
     since: number;
     maxBytes: number;
   }): Promise<NativeScanPage>;
+  count(options: { since: number; maxBytes: number }): Promise<{ total: number }>;
   read(options: { path: string }): Promise<{ data: string }>;
 }
 
@@ -80,6 +83,15 @@ export class AndroidFileDiscovery implements FileDiscovery {
       offset += page.files.length;
       if (page.done || page.files.length === 0) return;
     }
+  }
+
+  /** The denominator for progress. Same selection as scan(), computed in SQL. */
+  async count(options?: ScanOptions): Promise<number> {
+    const { total } = await Native.count({
+      since: 0,
+      maxBytes: options?.maxBytes ?? DEFAULT_SCAN.maxBytes,
+    });
+    return total;
   }
 
   async read(path: string): Promise<Uint8Array> {

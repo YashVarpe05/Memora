@@ -24,6 +24,10 @@ export class WebFileDiscovery implements FileDiscovery {
     // Intentionally empty.
   }
 
+  async count(_options?: ScanOptions): Promise<number> {
+    return 0;
+  }
+
   async read(_path: string): Promise<Uint8Array> {
     throw new Error('File discovery is not available in a browser. Install the app.');
   }

@@ -44,6 +44,19 @@ class Memory(Base):
         DateTime(timezone=True), nullable=True
     )
 
+    # Where the device scan found this file. Null for anything uploaded by hand.
+    #
+    # Not the content hash: the hash identifies BYTES, and this identifies a LOCATION.
+    # Two copies of one photo share a hash, and deleting one must not mark the other gone.
+    device_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+    # Set when a full scan no longer finds the file on the device. The memory survives:
+    # "I know I had it" is the problem this product exists to solve, so forgetting a
+    # document because it was tidied away would be the system reproducing that failure.
+    removed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

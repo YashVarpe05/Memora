@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import delete as sql_delete
+from sqlalchemy import update as sql_update
 
 from memora.db.models.chunk import Chunk
 from memora.db.models.memory import Memory
@@ -27,6 +29,7 @@ class MemoryRepository(BaseRepository[Memory]):
         document_type: str | None = None,
         sender: str | None = None,
         occurred_at: object | None = None,
+        device_path: str | None = None,
     ) -> Memory:
         memory = Memory(
             source_type=source_type,
@@ -39,6 +42,7 @@ class MemoryRepository(BaseRepository[Memory]):
             document_type=document_type,
             sender=sender,
             occurred_at=occurred_at,
+            device_path=device_path,
         )
         self.add(memory)
         await self.session.flush()
@@ -87,3 +91,52 @@ class MemoryRepository(BaseRepository[Memory]):
         await self.session.delete(memory)
         await self.session.flush()
         return memory
+
+    async def device_paths(self) -> dict[str, UUID]:
+        """Every device-discovered memory this user still has on the phone.
+
+        Returns path -> id so reconciliation can diff in Python. A `NOT IN` with a few
+        thousand bind parameters is the alternative, and it is both slower and capped by
+        the driver's parameter limit.
+        """
+        rows = await self.session.execute(
+            self.scoped()
+            .with_only_columns(Memory.device_path, Memory.id)
+            .where(Memory.device_path.is_not(None))
+        )
+        return {path: memory_id for path, memory_id in rows}
+
+    async def mark_removed(self, memory_ids: list[UUID], at: datetime) -> int:
+        """The file is gone from the device; the memory is not.
+
+        Idempotent by design - re-running a scan must not keep rewriting timestamps, or
+        "removed on 14 March" would silently become "removed on 20 March" and the one fact
+        the result promises the user would be wrong.
+        """
+        if not memory_ids:
+            return 0
+        result = await self.session.execute(
+            sql_update(Memory)
+            .where(Memory.user_id == self.user_id)
+            .where(Memory.id.in_(memory_ids))
+            .where(Memory.removed_at.is_(None))
+            .values(removed_at=at)
+        )
+        return result.rowcount or 0
+
+    async def mark_present(self, memory_ids: list[UUID]) -> int:
+        """A file that came back - restored from a backup, or un-deleted.
+
+        Without this a file could only ever be marked gone once, and the record would
+        keep claiming a removal that is no longer true.
+        """
+        if not memory_ids:
+            return 0
+        result = await self.session.execute(
+            sql_update(Memory)
+            .where(Memory.user_id == self.user_id)
+            .where(Memory.id.in_(memory_ids))
+            .where(Memory.removed_at.is_not(None))
+            .values(removed_at=None)
+        )
+        return result.rowcount or 0

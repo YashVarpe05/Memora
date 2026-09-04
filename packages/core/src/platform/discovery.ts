@@ -23,6 +23,9 @@ export interface DiscoveredFile {
   /** Epoch ms. Drives newest-first ordering and the incremental high-water mark. */
   modifiedAt: number;
   mimeType: string;
+  /** Device-relative folder, e.g. `DCIM/Camera/`. Shown while scanning so the user can
+   *  see what is being read, and useful for diagnosing filter rules against reality. */
+  folder?: string;
 }
 
 export interface ScanOptions {
@@ -62,6 +65,15 @@ export interface FileDiscovery {
    * the highest `modifiedAt` seen in the previous pass, persisted through SecureStorage.
    */
   since(marker: number, options?: ScanOptions): AsyncIterable<DiscoveredFile>;
+
+  /**
+   * How many candidates match, before reading any of them.
+   *
+   * Exists so progress can be `142 of 3,417` rather than a spinner. A spinner during a
+   * scan of thousands of files is indistinguishable from a hang, and an examiner
+   * watching one cannot tell whether the system is working.
+   */
+  count(options?: ScanOptions): Promise<number>;
 
   /** Read one file's bytes, once it has passed filtering and dedup. */
   read(path: string): Promise<Uint8Array>;

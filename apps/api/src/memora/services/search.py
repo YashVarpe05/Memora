@@ -139,6 +139,10 @@ class DocumentResult:
     page: int | None
     byte_size: int
     has_thumbnail: bool
+    # Set when the file is no longer on the device. The memory is still findable -
+    # forgetting a document because it was tidied away is the failure this product
+    # exists to fix - so the result carries the fact rather than being dropped.
+    removed_at: object | None = None
 
 
 @dataclass(frozen=True)
@@ -238,6 +242,7 @@ def to_results(scored: list[tuple[ChunkHit, float]]) -> list[DocumentResult]:
             page=hit.page,
             byte_size=hit.byte_size,
             has_thumbnail=hit.has_thumbnail,
+            removed_at=hit.removed_at,
         )
         for index, (hit, score) in enumerate(scored, start=1)
     ]
@@ -293,6 +298,7 @@ def fuse_results(
                 page=None,
                 byte_size=hit.byte_size,
                 has_thumbnail=hit.has_thumbnail,
+                removed_at=hit.removed_at,
             )
         )
     return merged

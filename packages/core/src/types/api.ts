@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/device/reconcile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reconcile Device */
+        post: operations["reconcile_device_device_reconcile_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -118,6 +135,82 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pair/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim Pairing */
+        post: operations["claim_pairing_pair_claim_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pair/revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Pairings
+         * @description Unpair every device. Loopback only, so a phone on the hotspot cannot unpair the
+         *     owner's devices - which would be a denial of service against the demo.
+         */
+        post: operations["revoke_pairings_pair_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pair/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start Pairing
+         * @description Called by the laptop to produce a QR. Loopback only - pairing is started by
+         *     whoever is sitting at the machine, which is the whole point.
+         */
+        post: operations["start_pairing_pair_start_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pair/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Pairing Status */
+        get: operations["pairing_status_pair_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/search": {
         parameters: {
             query?: never;
@@ -158,6 +251,8 @@ export interface components {
     schemas: {
         /** Body_upload_document_uploads_post */
         Body_upload_document_uploads_post: {
+            /** Device Path */
+            device_path?: string | null;
             /** File */
             file: string;
         };
@@ -190,6 +285,11 @@ export interface components {
             /** Title */
             title: string;
         };
+        /** DeviceToken */
+        DeviceToken: {
+            /** Device Token */
+            device_token: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -203,6 +303,27 @@ export interface components {
             environment: string;
             /** Status */
             status: string;
+        };
+        /** PairingClaim */
+        PairingClaim: {
+            /** Code */
+            code: string;
+        };
+        /** PairingStart */
+        PairingStart: {
+            /** Code */
+            code: string;
+            /** Expires At */
+            expires_at: string;
+            /** Url */
+            url: string;
+        };
+        /** PairingStatus */
+        PairingStatus: {
+            /** Devices Paired */
+            devices_paired: number;
+            /** Pairing Required */
+            pairing_required: boolean;
         };
         /** ReadinessResponse */
         ReadinessResponse: {
@@ -224,6 +345,32 @@ export interface components {
             role: string;
             /** Status */
             status: string;
+        };
+        /**
+         * ReconcileRequest
+         * @description Device paths the scan saw this run.
+         */
+        ReconcileRequest: {
+            /**
+             * Complete
+             * @default false
+             */
+            complete: boolean;
+            /** Paths */
+            paths?: string[];
+        };
+        /** ReconcileResponse */
+        ReconcileResponse: {
+            /** Marked Removed */
+            marked_removed: number;
+            /** Reason */
+            reason?: string | null;
+            /** Reconciled */
+            reconciled: boolean;
+            /** Restored */
+            restored: number;
+            /** Seen */
+            seen: number;
         };
         /** SearchRequest */
         SearchRequest: {
@@ -309,6 +456,8 @@ export interface components {
             rank: number;
             /** Raw Score */
             raw_score: number;
+            /** Removed At */
+            removed_at?: string | null;
             /** Score */
             score: number;
             /** Snippet */
@@ -377,6 +526,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChatResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    reconcile_device_device_reconcile_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReconcileRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReconcileResponse"];
                 };
             };
             /** @description Validation Error */
@@ -517,6 +699,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    claim_pairing_pair_claim_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PairingClaim"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceToken"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_pairings_pair_revoke_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingStatus"];
+                };
+            };
+        };
+    };
+    start_pairing_pair_start_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingStart"];
+                };
+            };
+        };
+    };
+    pairing_status_pair_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingStatus"];
                 };
             };
         };

@@ -4,6 +4,7 @@ import { Routes } from '@memora/core';
 
 import { AppShell } from '@/components/AppShell';
 import { PairPage } from '@/features/pairing/PairPage';
+import { ScanPage } from '@/features/scan/ScanPage';
 import { SearchView } from '@/features/search/SearchView';
 import { isNative, pairedServer } from '@/platform/api';
 import {
@@ -43,6 +44,7 @@ export default function App() {
           <Route path={Routes.Home} element={<Navigate to={Routes.Search} replace />} />
           <Route path={Routes.Search} element={<SearchView />} />
           <Route path={Routes.Pair} element={<PairPage />} />
+          <Route path={Routes.Scan} element={<ScanPage />} />
           <Route path={Routes.Ask} element={<AskPage />} />
           <Route path={Routes.Capture} element={<CapturePage />} />
           <Route path={Routes.Timeline} element={<TimelinePage />} />

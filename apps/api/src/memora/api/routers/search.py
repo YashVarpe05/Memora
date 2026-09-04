@@ -75,6 +75,9 @@ class SearchResult(BaseModel):
     byte_size: int
     thumbnail_url: str | None
     file_url: str
+    # ISO timestamp when the file left the device, or null. The card renders
+    # "removed from device" rather than offering a file that cannot open.
+    removed_at: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -320,6 +323,7 @@ async def search(
                     f"/memories/{r.memory_id}/thumbnail" if r.has_thumbnail else None
                 ),
                 file_url=f"/memories/{r.memory_id}/file",
+                removed_at=r.removed_at.isoformat() if r.removed_at else None,
             )
             for r in ranked
         ],

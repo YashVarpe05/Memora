@@ -162,6 +162,21 @@ export function ResultCard({
           </p>
         )}
 
+        {/*
+          A file deleted from the phone is still a memory. Saying so is the point: "I know
+          I had it" is the problem this product exists to solve, so the honest answer is
+          the date it left, not a result that fails to open or silently disappears.
+        */}
+        {result.removed_at && (
+          <span className="text-[0.6875rem] text-warn">
+            Removed from device on{' '}
+            {new Date(result.removed_at).toLocaleDateString(undefined, {
+              day: 'numeric',
+              month: 'long',
+            })}
+          </span>
+        )}
+
         <span className="truncate text-[0.6875rem] text-ink-faint">
           {title ? `${title} · ` : ''}
           {result.source_type}

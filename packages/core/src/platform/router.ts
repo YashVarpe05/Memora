@@ -14,6 +14,8 @@ export const Routes = {
   Search: '/search',
   /** Laptop shows the QR here; the phone scans it here. */
   Pair: '/pair',
+  /** Indexing the files already on the phone. Native only. */
+  Scan: '/scan',
   Ask: '/ask',
   Capture: '/capture',
   Timeline: '/timeline',

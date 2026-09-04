@@ -32,6 +32,9 @@ class ChunkHit:
     source_type: str
     byte_size: int
     has_thumbnail: bool
+    # Null unless a full device scan stopped finding the file. Carried through
+    # retrieval so a result can say the file is gone rather than fail to open.
+    removed_at: object | None = None
     sender: str | None = None
     occurred_at: object | None = None
 
@@ -73,6 +76,7 @@ class ChunkRepository(BaseRepository[Chunk]):
                 Memory.source_type,
                 Memory.byte_size,
                 Memory.has_thumbnail,
+                Memory.removed_at,
                 Memory.sender,
                 Chunk.occurred_at.label("chunk_at"),
             )
@@ -93,6 +97,7 @@ class ChunkRepository(BaseRepository[Chunk]):
                 source_type=source_type,
                 byte_size=byte_size,
                 has_thumbnail=has_thumbnail,
+                removed_at=removed_at,
                 sender=sender,
                 occurred_at=chunk_at,
             )
@@ -104,6 +109,7 @@ class ChunkRepository(BaseRepository[Chunk]):
                 source_type,
                 byte_size,
                 has_thumbnail,
+                removed_at,
                 sender,
                 chunk_at,
             ) in rows

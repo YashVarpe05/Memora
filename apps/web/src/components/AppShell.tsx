@@ -1,4 +1,4 @@
-import { Camera, Clock, MessageCircleQuestion, Search, Settings } from 'lucide-react';
+import { Camera, Clock, FolderSearch, MessageCircleQuestion, Search, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 
@@ -10,6 +10,7 @@ const TABS = [
   { to: Routes.Search, label: 'Find', Icon: Search },
   { to: Routes.Ask, label: 'Ask', Icon: MessageCircleQuestion },
   { to: Routes.Capture, label: 'Capture', Icon: Camera },
+  { to: Routes.Scan, label: 'Index', Icon: FolderSearch },
   { to: Routes.Timeline, label: 'Timeline', Icon: Clock },
   { to: Routes.Settings, label: 'Settings', Icon: Settings },
 ] as const;
