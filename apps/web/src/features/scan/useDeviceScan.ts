@@ -288,7 +288,25 @@ export function useDeviceScan() {
         return;
       }
 
-      if (highest > 0) writeMarker(highest);
+      // THE MARKER MAY ONLY ADVANCE IF ENUMERATION RAN OUT.
+      //
+      // Files arrive newest-first, so `highest` is taken from the FIRST one seen. A
+      // scan stopped after a single file would therefore record the newest timestamp
+      // on the device, and every later quick scan would ask for files newer than that
+      // and find none - silently stranding everything older, with nothing on screen
+      // saying so. A quick scan that fills its 500 of 3,851 does the same thing
+      // without anyone cancelling anything.
+      //
+      // `seen < limit` means the source ended before the cap, so everything matching
+      // was covered and the high-water mark describes a real boundary. A full scan
+      // has no meaningful cap and satisfies this whenever it is not cancelled.
+      //
+      // Same rule as reconciliation, for the same reason: a partial pass cannot make
+      // a claim about what it did not look at.
+      const enumerationExhausted = seen < limit;
+      if (highest > 0 && enumerationExhausted && !cancelled.current) {
+        writeMarker(highest);
+      }
 
       // Only a full, uncancelled scan can prove a file is gone. A quick scan sends its
       // paths too, but with complete=false the server explicitly does nothing with them -
