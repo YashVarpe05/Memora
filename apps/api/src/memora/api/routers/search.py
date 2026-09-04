@@ -120,6 +120,13 @@ def get_query_understanding() -> QueryUnderstanding:
     ablation can report both, not because the system depends on it.
     """
     settings = get_settings()
+    if settings.stage1_provider == "rules":
+        # No model at all. The fourth ablation arm, and the one that decides whether
+        # the on-device build needs an LLM - see prompts/rules-stage1.md.
+        from memora.services.rules_query_understanding import RulesQueryUnderstanding
+
+        return RulesQueryUnderstanding()
+
     if settings.stage1_provider == "local":
         from memora.services.local_query_understanding import (
             build_local_query_understanding,

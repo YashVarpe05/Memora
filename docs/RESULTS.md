@@ -345,6 +345,60 @@ number is the evidence. The obstacle is that α cannot be chosen here: tuning it
 gold set is fitting the test, and **the honest version needs a corpus that is not 93.6% one
 document.** Four of twenty non-refusal rows expect that single file.
 
+### 7.5 Rules-only stage 1 — identical to the 3B model on every row
+
+*Sources: `data/eval-runs/20260904T175619-stage1.md` (rules),
+`…20260904T113956-stage1.md` (local `qwen2.5:3b`); predictions in
+`prompts/rules-stage1.md`*
+
+Stage 1 is the only component of the pipeline that needs a language model. OCR ports to
+ML Kit, CLIP to ONNX, storage to SQLite — so whether the on-device build ships a 2 GB
+model, and what minimum hardware it demands, comes down to this one question.
+
+**Rules match the model exactly.** Same gold set, same corpus, same 25 rows:
+
+| arm | Recall@1 | Recall@5 | MRR@10 | refusal | stage 1 latency | failure rate |
+|---|---|---|---|---|---|---|
+| dense-only | 0.842 | — | — | — | — | — |
+| hosted `gemini-2.5-flash` | 0.947¹ | — | — | — | ~2–3 s | quota-bound |
+| local `qwen2.5:3b` | 0.905 | 1.000 | 0.952 | 0.500 | ~4.6 s | observed |
+| **rules, no model** | **0.905** | **1.000** | **0.952** | **0.500** | **0 ms** | **0 by construction** |
+
+¹ on the earlier 14-document corpus; not directly comparable.
+
+Not merely the same headline — **the same outcome on every individual row**, including the
+two failures. A per-row diff of the two runs is empty.
+
+The model earns its 0.063 over dense-only entirely through signal a lookup table also
+finds. The seven rows where rules extract nothing (`q002`–`q005`, `q011`, `q015`, `q025`)
+are exactly the seven the skip heuristic already skips, and they pass on dense retrieval
+alone.
+
+**What this costs to run:** `stage1_ms: 0` against ~4,600 ms, no quota, no transport, no
+parse step. Every failure mode `stage1_health.py` exists to watch for is absent by
+construction rather than merely unobserved — which also means the degradation banner,
+the failure-rate gate and the response cache are all dead weight on this arm.
+
+**Where rules are genuinely worse**, asserted in tests so they stay known:
+
+- `_SENDER` captures one word before "sent", so "anu priya sent" yields `priya`. q009
+  passes on substring matching — degraded, not broken.
+- Rules cannot infer *calendar* from "when was i supposed to" (q014). They do not need to:
+  dense already ranks that file first at 0.7644.
+- Semantic paraphrase is beyond a word set entirely. q025's "rectangular plastic pass with
+  my face printed on it" gets no route — but neither does the model, which returns
+  `document_type: None` for every query including "my college ID card".
+
+**The decision.** The on-device build ships without an LLM. Against a bar of ≥ 0.93 for
+that call, rules landed level with the model at 0.905 on identical rows, so the model is
+buying nothing this corpus can detect.
+
+Stated honestly: 25 rows is a small set, and a word table is exactly the kind of artefact
+that fits the queries it was read alongside. The strong claim here is the *cost* comparison
+— 0 ms and no failure modes — and the direction of the retrieval result. A larger and more
+adversarial query set could still separate them, and that is the measurement that would
+overturn this.
+
 ## 8. Methodology findings
 
 These are results, not process notes. Each is a measured failure of a technique that looked
@@ -443,6 +497,31 @@ failed: the query is classified by the **same vocabulary that classifies documen
 file typed from its filename, a query from its words, one table for both sides, no model in
 the loop. Deterministic, free, and it cannot silently stop working when the model changes.
 That option was never considered while the model was believed to be supplying the signal.
+
+### 8.7 A prediction that was right for the wrong reason
+
+The rules arm predicted **0.905**, and measured 0.905. The row-level prediction it rested
+on was wrong.
+
+q010 — "the tcs job where they asked to send cv on email" — was named in advance as the
+regression: `email` is in `SOURCE_WORDS`, the answer is a WhatsApp image, and `source_types`
+is the one extracted field whose wrong guess is *negative*. It passed.
+
+The mechanism was exactly as described. The correct document scored `raw=0.6169` and
+`score=0.5369` — a gap of 0.08, precisely `−FILTER_BONUS`. **The wrong filter was applied
+and the right document was penalised for it.** It won anyway, because its dense lead was
+larger than the penalty.
+
+So the aggregate matched the prediction while the reasoning under it did not, and the
+falsifier written alongside it — *"if q010 passes, `source_types` is not being applied as
+described"* — was simply false: it was applied, and passing proved only that the penalty was
+survivable. **A falsifier that a passing row would have disproved the mechanism is a badly
+built falsifier**, and following it would have sent the next change looking for a bug in
+filter application that does not exist.
+
+The correction is to predict the *quantity* rather than the direction where a margin decides
+it. q016's margin is 0.0088 and q010's is over 0.08; the same 0.08 penalty destroys one and
+is absorbed by the other. Naming the row without measuring the margin was the error.
 
 ## 9. What is not measured
 

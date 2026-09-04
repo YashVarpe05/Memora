@@ -50,7 +50,7 @@ leaves the device*.
 | Visual search | CLIP, 3.19 GB container | **quantised ONNX**, ~50 MB | medium |
 | Storage + vectors | Postgres + pgvector | **SQLite + sqlite-vec** | medium |
 | Text embeddings | `gemini-embedding-001` | **ONNX MiniLM** on-device | medium |
-| **Stage 1** | `qwen2.5:3b` via Ollama | **open question** — see below | **unknown** |
+| **Stage 1** | `qwen2.5:3b` via Ollama | **rules, no model** — measured level with it | **solved** |
 | Per-owner isolation | Postgres RLS, forced, tested | single-user device | **a claim changes** |
 
 **RLS is the one that costs something.** Half the privacy novelty claim rests on
@@ -59,29 +59,31 @@ role. A single-user device has no other owner to isolate from, so the guarantee 
 weakened so much as *made vacuous* — and the report must say that rather than quietly
 keeping the claim. It is a design decision, not a port.
 
-### Stage 1 on-device is an open question, and it is measurable now
+### Stage 1 needs no model on-device — measured 2026-09-04
 
-Two candidates:
+**Answered.** A rule-based extractor scores **identically to `qwen2.5:3b` on all 25 gold
+rows** — Recall@1 0.905, MRR@10 0.952, same outcome row for row, an empty per-row diff.
+See `RESULTS.md` §7.5 and `prompts/rules-stage1.md`.
 
-1. **A rule-based extractor.** Stage 1 returns source type, sender, date and document
-   type. Much of that is pattern matching, and `query_signal.py` already does rule-based
-   signal detection over the same vocabulary. A regex extractor is instant, free, needs no
-   model, and runs anywhere.
-2. **A sub-1B model** — Gemma 3 270M through Android's MediaPipe LLM API, if rules fall
-   short.
+So the on-device build ships **no language model**: no 2 GB download, no inference battery
+cost, no minimum-RAM floor, and none of the failure modes stage 1 was wrapped in guards to
+survive. `stage1_ms` is 0 against ~4,600, and the failure rate is zero by construction
+rather than by observation.
 
-**Rules first.** It costs nothing to try, it is measurable against the existing 23-row gold
-set with the existing harness, and the bar is already established: **0.842**, the
-dense-only baseline, because `PHASE3.md` measured that a weak extractor scores *below* using
-none.
+The sub-1B fallback (Gemma 3 270M via MediaPipe) is **not needed** and should not be built.
 
-**The experiment is worth reporting whichever way it lands:** *how much of query
-understanding actually needs a language model?* If rules reach 0.895 the on-device build
-needs no LLM at all, which is a stronger result than the model working. If they do not, the
-gap between rules and a 3B model is itself the measurement of what the model contributes.
+What rules give up, and where it does not matter:
 
-This is a zero-cost experiment against a harness that already exists, so it can be run long
-before any of the ports above are attempted.
+- Two-word names lose the first word ("anu priya" → "priya"); substring matching still hits.
+- No inference of *calendar* from "when was i supposed to" — dense already ranks it first.
+- No semantic paraphrase. Neither has the model: it returns `document_type: None` for every
+  query, which is why the corpus vocabulary now classifies queries instead.
+
+**The caveat that would overturn this:** 25 rows is small, and a word table is exactly the
+artefact that fits queries it was written beside. The durable half of the result is the cost
+comparison; the retrieval half wants a larger, adversarial query set before it is load
+bearing.
+
 
 ---
 
