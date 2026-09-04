@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { Navigate, Outlet, Route, Routes as RouterRoutes, useLocation } from 'react-router-dom';
 
 import { Routes } from '@memora/core';
@@ -6,7 +7,7 @@ import { AppShell } from '@/components/AppShell';
 import { PairPage } from '@/features/pairing/PairPage';
 import { ScanPage } from '@/features/scan/ScanPage';
 import { SearchView } from '@/features/search/SearchView';
-import { isNative, pairedServer } from '@/platform/api';
+import { isNative, onPairingLost, pairedServer, verifyPairing } from '@/platform/api';
 import {
   AskPage,
   CapturePage,
@@ -28,6 +29,18 @@ import {
  */
 function RequirePairing() {
   const { pathname } = useLocation();
+  // Bumped when the pairing is dropped, so this re-reads storage and redirects. Without
+  // it the token can be cleared underneath a screen that keeps rendering as if paired.
+  const [, bump] = useState(0);
+
+  useEffect(() => onPairingLost(() => bump((n) => n + 1)), []);
+
+  // A token the laptop no longer accepts is worse than no token: the app looks connected,
+  // offers no way to re-pair, and fails at whatever the user tries first. One cheap call
+  // at launch settles it, and a 401 anywhere clears the pairing through apiFetch.
+  useEffect(() => {
+    if (isNative() && pairedServer()) void verifyPairing();
+  }, []);
 
   if (isNative() && !pairedServer() && pathname !== Routes.Pair) {
     return <Navigate to={Routes.Pair} replace />;

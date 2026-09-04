@@ -236,7 +236,11 @@ export function useDeviceScan() {
         cancelled.current = true;
         return;
       }
-      return
+      // No bare return on its own line here. Automatic semicolon insertion ends the
+      // statement at the line break, so a return followed by setProgress on the next line
+      // becomes "return;" plus unreachable code. That is exactly what happened: every
+      // upload came back 201 while the screen showed "0 indexed" and 0s elapsed.
+      // TypeScript compiles it without complaint; only the running app disagrees.
       setProgress((p) => ({
         ...p,
         seen: p.seen + 1,

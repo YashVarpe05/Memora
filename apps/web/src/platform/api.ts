@@ -77,12 +77,65 @@ function resolve(path: string): string {
   return `${paired.url}${path.replace(/^\/api/, '')}`;
 }
 
-/** Every API call goes through here, so the token cannot be forgotten on one of them. */
-export function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * Fired when the laptop stops recognising this device's token.
+ *
+ * Holding a token is not the same as being paired, and the app treated them as the same
+ * thing. When the API restarted its in-memory pairing store emptied; the phone still had
+ * a token, `pairedServer()` still returned it, so the guard saw a paired device, `/pair`
+ * was not in the nav, and there was no route back to the scanner at all. A stale pairing
+ * looked exactly like a working one until every request failed.
+ */
+const PAIRING_LOST = 'memora:pairing-lost';
+
+export function onPairingLost(listener: () => void): () => void {
+  window.addEventListener(PAIRING_LOST, listener);
+  return () => window.removeEventListener(PAIRING_LOST, listener);
+}
+
+/**
+ * Every API call goes through here, so the token cannot be forgotten on one of them —
+ * and a rejected token is noticed wherever it happens rather than only where someone
+ * remembered to check.
+ */
+export async function apiFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const paired = pairedServer();
   const headers = new Headers(init.headers);
   if (paired) headers.set('Authorization', `Bearer ${paired.token}`);
-  return fetch(resolve(path), { ...init, headers });
+
+  const response = await fetch(resolve(path), { ...init, headers });
+
+  // 401 while holding a token means the laptop has forgotten this device. Drop the
+  // pairing so the app stops pretending, and announce it so the UI can send the user
+  // back to the QR instead of stranding them on a screen with no way forward.
+  if (paired && response.status === 401) {
+    clearPairing();
+    window.dispatchEvent(new Event(PAIRING_LOST));
+  }
+  return response;
+}
+
+/**
+ * Is the stored pairing still accepted?
+ *
+ * Called once at launch. Without it a phone holding a dead token sits on the search
+ * screen looking normal until the user tries something, and the first thing they try
+ * fails for reasons the screen does not explain.
+ */
+export async function verifyPairing(): Promise<boolean> {
+  if (!pairedServer()) return false;
+  try {
+    const response = await apiFetch('/api/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'ping', limit: 1, stage1: false }),
+    });
+    return response.status !== 401;
+  } catch {
+    // Unreachable is not unpaired. The laptop may simply be asleep, and throwing the
+    // pairing away for a network blip would force a needless re-scan.
+    return true;
+  }
 }
 
 /**

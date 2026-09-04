@@ -1,8 +1,11 @@
 import { Camera, Clock, FileText, Mic } from 'lucide-react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
+
+import { Routes } from '@memora/core';
 
 import { Button } from '@/components/ui/button';
 import { ChatView } from '@/features/chat/ChatView';
+import { pairedServer } from '@/platform/api';
 import { useNavigator } from '@/platform/navigator';
 
 export function AskPage() {
@@ -64,12 +67,38 @@ export function TimelinePage() {
 }
 
 export function SettingsPage() {
+  const paired = pairedServer();
+
   return (
-    <Placeholder
-      title="Settings"
-      body="Connected accounts, export, and account deletion - which removes rows, vectors and files, demonstrably."
-      phase="phase 6"
-    />
+    <div className="mx-auto flex max-w-2xl flex-col gap-5 px-4 py-8">
+      <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
+
+      {/*
+        A permanent, manual way to reach pairing.
+        The automatic paths are good now - a 401 clears the pairing and the guard
+        redirects - but this app has already stranded a user once with a token the
+        laptop had forgotten, no redirect, and no link to the scanner anywhere. An
+        escape hatch that does not depend on anything working is worth one link.
+      */}
+      <div className="flex flex-col gap-2 rounded-card border border-line bg-surface p-3">
+        <span className="text-sm font-medium text-ink">Connection</span>
+        <span className="text-xs text-ink-muted">
+          {paired ? `Paired with ${paired.url}` : 'Not connected to a computer.'}
+        </span>
+        <Link
+          to={Routes.Pair}
+          className="mt-1 self-start text-sm font-medium text-accent underline"
+        >
+          {paired ? 'Reconnect or disconnect' : 'Connect to your computer'}
+        </Link>
+      </div>
+
+      <Placeholder
+        title="More settings"
+        body="Connected accounts, export, and account deletion - which removes rows, vectors and files, demonstrably."
+        phase="phase 6"
+      />
+    </div>
   );
 }
 
