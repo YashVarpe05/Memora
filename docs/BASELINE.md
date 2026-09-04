@@ -1,6 +1,6 @@
 # Stage 1 — filtered retrieval
 
-Recorded 2026-09-04T11:28:53+00:00, commit `d229496`.
+Recorded 2026-09-04T11:39:56+00:00, commit `080db70`.
 
 **Query understanding is ON.** Compare against `BASELINE.md`, which is the
 same corpus and gold set with stage 1 disabled.
@@ -8,7 +8,7 @@ same corpus and gold set with stage 1 disabled.
 ## What was measured
 
 - Corpus: 15 documents, 377 chunks
-- Gold set: 24 queries (20 retrieval, 4 refusal)
+- Gold set: 25 queries (21 retrieval, 4 refusal)
 - Retrieval: dense cosine over `gemini-embedding-001` at 768 dims, with stage 1 filters applied as boosts.
 - Evaluated against an already-indexed corpus, verified by content hash.
 
@@ -16,9 +16,9 @@ same corpus and gold set with stage 1 disabled.
 
 | metric | value |
 |---|---|
-| **Recall@1** | **0.950** (19/20) |
+| **Recall@1** | **0.905** (19/21) |
 | Recall@5 | 1.000 |
-| MRR@10 | 0.975 |
+| MRR@10 | 0.952 |
 | Refusal accuracy | 0.500 (2/4) |
 
 ## By query type
@@ -27,7 +27,7 @@ same corpus and gold set with stage 1 disabled.
 |---|---|---|
 | `content_semantic` | 2 | 2 |
 | `disambiguation` | 4 | 4 |
-| `document_identity` | 1 | 1 |
+| `document_identity` | 1 | 2 |
 | `entity_resolution` | 4 | 4 |
 | `metadata_only` | 3 | 3 |
 | `must_refuse` | 2 | 4 |
@@ -62,6 +62,7 @@ same corpus and gold set with stage 1 disabled.
 | q022 | `must_refuse` | **ANSWERED** | the photo of me at the Taj Mahal | WhatsApp Image 2026-06-13 at 16.58 |
 | q023 | `must_refuse` | **ANSWERED** | the group photo from the farewell party | yashvarpe2005@gmail.com.ics |
 | q024 | `document_identity` | 1 | my college ID card | college_id.jpg |
+| q025 | `document_identity` | 2 | that rectangular plastic pass with my face printed on it | yashvarpe2005@gmail.com.ics |
 
 ## Where the failures went
 
@@ -69,17 +70,17 @@ Most frequent top result:
 
 | file | times ranked first |
 |---|---|
-| `yashvarpe2005@gmail.com.ics` | 5 |
+| `yashvarpe2005@gmail.com.ics` | 6 |
 | `WhatsApp Image 2026-06-13 at 16.58.51.jpeg` | 3 |
 | `WhatsApp Image 2026-07-03 at 01.24.47 (1).jpeg` | 3 |
 | `mail.pdf` | 2 |
 | `WhatsApp Image 2026-07-03 at 01.24.48.jpeg` | 2 |
 
-`yashvarpe2005@gmail.com.ics` is the top result for 5 of 24 queries (21%).
+`yashvarpe2005@gmail.com.ics` is the top result for 6 of 25 queries (24%).
 
 ## Stage 1 calls skipped
 
-**18 stage 1 calls for 24 queries, cold.** The free tier allows 20 generate requests a day, so a cold run fits in one day's budget; a run without skipping needs 24 and does not.
+**18 stage 1 calls for 25 queries, cold.** The free tier allows 20 generate requests a day, so a cold run fits in one day's budget; a run without skipping needs 25 and does not.
 
 Cold is the number that matters for planning. A warm cache serves most of these rows for free, so the calls actually issued by any given run may be far fewer — which is why this says *required*, not *spent*.
 
@@ -93,12 +94,13 @@ Skipped means the query carried no source-type word, no sender and no date, so s
 | q005 | the list of drone topics i was supposed to learn | 1 | loses entities [drone] |
 | q011 | the uipath job in chennai | 1 | loses entities [uipath, chennai] — highest risk |
 | q015 | that uber clone thing i planned to build | 1 | loses entities [uber] |
+| q025 | that rectangular plastic pass with my face printed on it | 2 | none predicted |
 
 ## Stage 1 cost
 
 An extra model call on every search. Measured across these queries:
 
-- median 6357 ms, range 4533-7899 ms
+- median 5718 ms, range 4079-6408 ms
 - added to every search, before any retrieval happens
 
 ## Top-score distribution
@@ -111,6 +113,7 @@ no single threshold separates them and refusal needs a different signal.
 |---|---|---|
 | 0.016 | q024 | `document_identity` |
 | 0.494 | q019 | `visual_recall` |
+| 0.514 | q025 | `document_identity` |
 | 0.530 | q022 | `must_refuse` |
 | 0.537 | q023 | `must_refuse` |
 | 0.547 | q007 | `visual_recall` |

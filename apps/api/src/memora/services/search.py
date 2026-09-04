@@ -9,6 +9,7 @@ someone adds a "summarise the results" step.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -182,6 +183,31 @@ def initial_window(limit: int) -> int:
     return max(limit, 1) * INITIAL_FANOUT
 
 
+# Approach A from prompts/chunk-dominance.md, measured as its own ablation row.
+#
+# Scoring takes the best chunk per document, so a document contributing 40 chunks to
+# the window gets 40 draws and a document contributing 1 gets one. The maximum of n
+# draws rises with n even when nothing is more relevant, so corpus share leaks into
+# the ranking as if it were evidence. On this corpus one document holds 93.6% of all
+# chunks, which is the extreme case rather than a hypothetical one.
+#
+# Damped by log of the draws actually taken, not the document's total chunk count:
+# the lottery is over what entered the window, and a long document whose chunks were
+# all too distant to be fetched took no extra draws and has earned no penalty.
+#
+# MEASURED AND DISABLED. At 0.05 this cost more than the bias it removed:
+# Recall@1 0.950 -> 0.850, Recall@5 1.000 -> 0.950, MRR 0.975 -> 0.906.
+# q016 fell from rank 1 to rank 8 and out of the top five; q018 fell to rank 2. Both
+# are rows the 353-chunk calendar legitimately answers, each on ONE event buried in
+# it - the single-decisive-chunk case any size penalty is worst at.
+#
+# Left in place at 0.0 rather than deleted, because the bias is real and the number
+# is the evidence. Tuning this against the gold set would be fitting the test: the
+# honest way to choose it is a corpus with a realistic chunk distribution, not one
+# where a single document holds 93.6% of the chunks and answers four of twenty rows.
+CHUNK_DRAW_DAMPING = 0.0
+
+
 def group_by_document(
     hits: list[ChunkHit], boosts: Boosts | None = None
 ) -> list[tuple[ChunkHit, float]]:
@@ -192,12 +218,26 @@ def group_by_document(
     the rest of a long file. It is a knob the baseline will test, not a truth.
     """
     applied = boosts or Boosts()
+    draws: dict[UUID, int] = {}
+    for hit in hits:
+        draws[hit.memory_id] = draws.get(hit.memory_id, 0) + 1
+
     best: dict[UUID, tuple[ChunkHit, float]] = {}
     for hit in hits:
         score = boosted_score(hit, applied)
         current = best.get(hit.memory_id)
         if current is None or score > current[1]:
             best[hit.memory_id] = (hit, score)
+
+    if CHUNK_DRAW_DAMPING:
+        best = {
+            memory_id: (
+                hit,
+                score / (1 + CHUNK_DRAW_DAMPING * math.log(draws[memory_id])),
+            )
+            for memory_id, (hit, score) in best.items()
+        }
+
     return sorted(best.values(), key=lambda pair: pair[1], reverse=True)
 
 
