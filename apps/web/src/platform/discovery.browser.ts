@@ -82,6 +82,25 @@ export class BrowserFileDiscovery implements FileDiscovery {
     this.pathPrefixes = permitted.map(folder => `browser/${folder.id}/`);
     return true;
   }
+  /** Saved folders the browser has not currently granted, e.g. after a browser restart. */
+  async pendingFolders(): Promise<number> {
+    const folders = (await this.store.readState<Folder[]>('folders')) ?? [];
+    let pending = 0;
+    for (const folder of folders) {
+      try {
+        if (await folder.handle.queryPermission() !== 'granted') pending++;
+      } catch { pending++; }
+    }
+    return pending;
+  }
+  /** Re-grant saved folders without re-picking them. Must run from a user gesture. */
+  async reallow(): Promise<boolean> {
+    const folders = (await this.store.readState<Folder[]>('folders')) ?? [];
+    for (const folder of folders) {
+      try { await folder.handle.requestPermission(); } catch { /* Stays pending. */ }
+    }
+    return this.restore();
+  }
   async *scan(options?: ScanOptions): AsyncIterable<DiscoveredFile> {
     if (await this.checkPermission() !== 'granted') {
       throw new Error('Folder access expired. Choose the folder again before rescanning.');

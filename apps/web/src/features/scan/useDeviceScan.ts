@@ -17,6 +17,7 @@ export function useIndexController() {
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ seen: 0, queued: 0, known: 0, failed: 0 });
   const [issues, setIssues] = useState<string[]>([]);
+  const [needsReallow, setNeedsReallow] = useState(false);
   const [jobsOffset, setJobsOffset] = useState(0);
   const [jobs, setJobs] = useState<Jobs>({ jobs: [], counts: {} });
   const active = useRef(false);
@@ -139,6 +140,21 @@ export function useIndexController() {
     } finally { choosing.current = false; }
   }
 
+  async function reallow() {
+    const browser = discovery.current;
+    if (active.current || choosing.current || !(browser instanceof BrowserFileDiscovery)) return;
+    choosing.current = true;
+    setError(null);
+    try {
+      const granted = await browser.reallow();
+      setNeedsReallow(await browser.pendingFolders() > 0);
+      if (granted) await start();
+      else setError('Folder access was not granted. Choose the folder again.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Folder permission was not granted.');
+    } finally { choosing.current = false; }
+  }
+
   async function retry(id: string) {
     const response = await apiFetch(`/api/index/jobs/${id}/retry`, { method: 'POST' });
     if (!response.ok) setError('Could not retry. Check your connection.');
@@ -154,7 +170,9 @@ export function useIndexController() {
     const resume = async () => {
       if (!pairedServer() || !consented() || active.current || choosing.current || stop.current || document.hidden) return;
       if (discovery.current instanceof BrowserFileDiscovery) {
-        if (!await discovery.current.restore()) return;
+        const restored = await discovery.current.restore();
+        setNeedsReallow(await discovery.current.pendingFolders() > 0);
+        if (!restored) return;
       } else if (await (discovery.current as AndroidFileDiscovery).checkPermission() !== 'granted') return;
       await latest.current.start();
     };
@@ -183,6 +201,7 @@ export function useIndexController() {
   }, [phase]);
 
   return { phase, progress, issues, error, jobs, jobsOffset, setJobsOffset, choose, start, retry,
+    needsReallow, reallow,
     cancel: () => { stop.current = true; },
     disable: () => { stop.current = true; localStorage.removeItem(consentKey()); setPhase('paused'); } };
 }

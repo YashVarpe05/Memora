@@ -36,6 +36,25 @@ test('missing permission throws instead of producing a successful empty scan', a
   assert.equal(await scanner.restore(), false);
   await assert.rejects(() => collect(scanner), /Choose the folder again/);
 });
+test('saved folders the browser stopped granting are reported, then re-allowed without re-picking', async () => {
+  const lapsed = folder('lapsed', 'prompt');
+  let permission = 'prompt';
+  lapsed.handle.queryPermission = async () => permission;
+  lapsed.handle.requestPermission = async () => (permission = 'granted');
+  const scanner = discovery([folder('ok'), lapsed]);
+  assert.equal(await scanner.pendingFolders(), 1);
+  assert.equal(await scanner.reallow(), true);
+  assert.equal(await scanner.pendingFolders(), 0);
+  assert.deepEqual(scanner.pathPrefixes, ['browser/ok/', 'browser/lapsed/']);
+});
+test('a refused re-allow leaves the folder pending and scans nothing', async () => {
+  const lapsed = folder('lapsed', 'prompt');
+  lapsed.handle.requestPermission = async () => 'denied';
+  const scanner = discovery([lapsed]);
+  assert.equal(await scanner.reallow(), false);
+  assert.equal(await scanner.pendingFolders(), 1);
+  await assert.rejects(() => collect(scanner), /Choose the folder again/);
+});
 test('an accessible empty folder can reconcile deleted files', async () => {
   const scanner = discovery([folder('empty', 'granted', [])]);
   assert.equal(await scanner.restore(), true);

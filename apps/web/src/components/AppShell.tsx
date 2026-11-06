@@ -1,6 +1,8 @@
 import { Camera, FolderSearch, Search, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { SearchStatus } from '@/components/SearchStatus';
+import { Button } from '@/components/ui/button';
+import { useDeviceScan } from '@/features/scan/useDeviceScan';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { Routes } from '@memora/core';
@@ -38,8 +40,7 @@ function Tab({ to, label, Icon }: { to: string; label: string; Icon: typeof Came
  */
 export function AppShell({ children }: { children?: ReactNode }) {
   const { pathname } = useLocation();
-  return () => controller.abort();
-  }, [pathname]);
+  const index = useDeviceScan();
   return (
     <div className="flex h-full flex-col bg-canvas">
       <header
@@ -63,6 +64,12 @@ export function AppShell({ children }: { children?: ReactNode }) {
 
       <main className="min-h-0 flex-1 overflow-y-auto">
         <SearchStatus route={pathname} />
+        {index.needsReallow && (
+          <div className="flex items-center gap-3 px-4 pt-3 text-xs text-warn">
+            <span>Memora paused: your browser needs folder access again.</span>
+            <Button variant="subtle" onClick={() => void index.reallow()}>Re-allow folder access</Button>
+          </div>
+        )}
         {children ?? <Outlet />}
       </main>
 
