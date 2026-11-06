@@ -9,7 +9,9 @@ a GET would put it in the URL, the browser history, and every access log in betw
 
 from __future__ import annotations
 
+import asyncio
 import time
+from dataclasses import replace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -21,7 +23,12 @@ from memora.repositories.chunk import ChunkRepository
 from memora.repositories.image_embedding import ImageEmbeddingRepository, ImageHit
 from memora.repositories.memory import MemoryRepository
 from memora.services.document_type import classify, should_refuse
-from memora.services.embedding import Embedder, build_embedder
+from memora.services.embedding import (
+    Embedder,
+    build_embedder,
+    embed_query,
+    embedding_fingerprint,
+)
 from memora.services.image_embedding import (
     ImageEmbedder,
     ImageEmbeddingUnavailable,
@@ -58,6 +65,7 @@ class SearchRequest(BaseModel):
     # Visual search. Off makes the ablation arm measurable against the text-only
     # numbers every report before this one recorded.
     images: bool = True
+    hybrid: bool = True
 
 
 class SearchResult(BaseModel):
@@ -78,6 +86,10 @@ class SearchResult(BaseModel):
     # ISO timestamp when the file left the device, or null. The card renders
     # "removed from device" rather than offering a file that cannot open.
     removed_at: str | None = None
+    document_type: str | None = None
+    document_label: str | None = None
+    match_explanation: str = "Matched document contents"
+    uncertain: bool = False
 
 
 class SearchResponse(BaseModel):
@@ -108,17 +120,17 @@ class SearchResponse(BaseModel):
     degraded_message: str | None = None
 
 
-def get_embedder() -> Embedder:
-    return build_embedder()
+def get_embedder() -> Embedder | None:
+    settings = get_settings()
+    if settings.embedding_provider == "lexical":
+        return None
+    if settings.embedding_provider == "local" or settings.gemini_api_key:
+        return build_embedder()
+    return None
 
 
 def get_query_understanding() -> QueryUnderstanding:
-    """Stage 1, local by default.
-
-    Local is not a fallback for when the quota runs out - it is the configuration the
-    product ships in. Hosted is reachable with STAGE1_PROVIDER=gemini and exists so the
-    ablation can report both, not because the system depends on it.
-    """
+    """Rules by default; optional model providers remain available for evaluation."""
     settings = get_settings()
     if settings.stage1_provider == "rules":
         # No model at all. The fourth ablation arm, and the one that decides whether
@@ -144,12 +156,12 @@ def get_query_understanding() -> QueryUnderstanding:
     return CachingQueryUnderstanding(inner, model=settings.gemini_model)
 
 
-def get_image_embedder() -> ImageEmbedder:
+def get_image_embedder() -> ImageEmbedder | None:
     return build_image_embedder()
 
 
-EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
-ImageEmbedderDep = Annotated[ImageEmbedder, Depends(get_image_embedder)]
+EmbedderDep = Annotated[Embedder | None, Depends(get_embedder)]
+ImageEmbedderDep = Annotated[ImageEmbedder | None, Depends(get_image_embedder)]
 StageOneDep = Annotated[QueryUnderstanding, Depends(get_query_understanding)]
 
 
@@ -171,6 +183,7 @@ async def search(
         payload.stage1
         and payload.stage1_skip
         and not has_filterable_signal(payload.query)
+        and classify(text=payload.query) is None
     )
     if payload.stage1 and not skipped:
         started = time.perf_counter()
@@ -191,7 +204,21 @@ async def search(
     #
     # Masked like every other embedding: a description typed into a search box can
     # itself contain an identifier.
-    query_vector = (await embedder.embed([mask_identifiers(payload.query)]))[0]
+    query_vector = None
+    embedding_degraded = None
+    try:
+        if embedder is None:
+            raise RuntimeError("Embedding is not configured")
+        async with asyncio.timeout(5):
+            query_vector = await embed_query(embedder, mask_identifiers(payload.query))
+    except Exception:
+        embedding_degraded = (
+            "Meaning-based search is unavailable. Showing word and document-type matches."
+        )
+
+    wanted_type = filters.document_type or classify(text=payload.query)
+    if wanted_type and filters.document_type is None:
+        filters = replace(filters, document_type=wanted_type)
 
     boosts = Boosts(
         source_types=filters.source_types,
@@ -202,23 +229,105 @@ async def search(
     )
 
     chunks = ChunkRepository(session, user_id)
-    outcome = await search_documents(
-        lambda n: chunks.search_hits(query_vector, n), payload.limit, boosts
-    )
+
+    async def dense_window(n: int):
+        return (await chunks.search_hits(query_vector, n, model_id=embedding_fingerprint(embedder))
+                if query_vector is not None else [])
+
+    outcome = await search_documents(dense_window, payload.limit, boosts)
     ranked = outcome.results
+    lexical_ids: set = set()
+    if payload.hybrid:
+        from memora.services.lexical import excerpt
+        from memora.services.search import DocumentResult, boosted_score
+
+        lexical_hits = await chunks.search_lexical(payload.query, 2000, wanted_type)
+        lexical_hits.sort(
+            key=lambda h: (
+                bool(wanted_type and h.document_type == wanted_type),
+                h.lexical_score + boosted_score(h, boosts),
+                # The document label is inherited by every page. Break ties using
+                # this chunk's contents so translated type queries open the ID,
+                # not an unrelated cover that happens to be first in the file.
+                bool(wanted_type and classify(text=h.text) == wanted_type),
+            ),
+            reverse=True,
+        )
+        lexical_results = []
+        seen_ids = set()
+        for hit in lexical_hits:
+            if hit.memory_id in seen_ids:
+                continue
+            seen_ids.add(hit.memory_id)
+            lexical_results.append(
+                DocumentResult(
+                    rank=len(lexical_results) + 1,
+                    memory_id=hit.memory_id,
+                    title=hit.title,
+                    filename=hit.filename,
+                    source_type=hit.source_type,
+                    score=0.0,
+                    raw_score=0.0,
+                    snippet=excerpt(hit.text, f"{payload.query} {wanted_type or ''}"),
+                    matched_chunk_id=hit.chunk_id,
+                    page=hit.page,
+                    byte_size=hit.byte_size,
+                    has_thumbnail=hit.has_thumbnail,
+                    document_type=hit.document_type,
+                    removed_at=hit.removed_at,
+                )
+            )
+            if len(lexical_results) >= payload.limit * 2:
+                break
+        lexical_ids = {r.memory_id for r in lexical_results}
+        by_id = {r.memory_id: r for r in [*lexical_results, *ranked]}
+        # Preserve dense confidence, but open the chunk that contains the query words.
+        from memora.services.lexical import tokens
+
+        query_terms = set(tokens(payload.query))
+        for result in lexical_results:
+            current = by_id[result.memory_id]
+            lexical_evidence = (
+                len(query_terms & set(tokens(result.snippet))),
+                bool(wanted_type and classify(text=result.snippet) == wanted_type),
+            )
+            dense_evidence = (
+                len(query_terms & set(tokens(current.snippet))),
+                bool(wanted_type and classify(text=current.snippet) == wanted_type),
+            )
+            if lexical_evidence > dense_evidence:
+                by_id[result.memory_id] = replace(
+                    current, snippet=result.snippet, page=result.page,
+                    matched_chunk_id=result.matched_chunk_id,
+                )
+        fusion: dict = {}
+        for arm in (ranked, lexical_results):
+            for position, result in enumerate(arm, 1):
+                fusion[result.memory_id] = fusion.get(result.memory_id, 0.0) + 1 / (60 + position)
+        ordered = sorted(
+            by_id.values(),
+            key=lambda r: (
+                bool(wanted_type and r.document_type == wanted_type),
+                fusion[r.memory_id],
+                r.score,
+            ),
+            reverse=True,
+        )
+        ranked = [replace(r, rank=i) for i, r in enumerate(ordered[: payload.limit], 1)]
 
     # The image list, fused in by RANK. Some documents have no text at all - a photo of
     # people yields an empty OCR string - so the text list cannot contain them at any
     # quality. Their vector is CLIP's, on a scale where 0.28 is strong, and it is never
     # compared with the text similarities. See services/fusion.py.
     image_hits: list[ImageHit] = []
-    if payload.images:
+    if payload.images and image_embedder is not None:
         try:
-            clip_vector, _ = await image_embedder.embed_text(payload.query)
+            async with asyncio.timeout(2):
+                clip_vector, _ = await image_embedder.embed_text(payload.query)
             image_hits = await ImageEmbeddingRepository(session, user_id).search(
                 clip_vector, payload.limit * 2
             )
-        except ImageEmbeddingUnavailable:
+        except (ImageEmbeddingUnavailable, TimeoutError):
             # Degrade to text-only. Visual search being down must not stop a search that
             # the text index can answer perfectly well.
             image_hits = []
@@ -241,12 +350,11 @@ async def search(
     # The evidence threshold still applies as a floor, so a visually-irrelevant document
     # cannot enter on a near-zero score. But the gate that matters is this one, and it is
     # a property of the corpus rather than a tuned number.
-    text_found = {result.memory_id for result in outcome.results}
+    text_found = {result.memory_id for result in ranked}
     image_evidence = [
         hit
         for hit in image_hits
-        if hit.memory_id not in text_found
-        and not has_weak_image_evidence([hit.similarity])
+        if hit.memory_id not in text_found and not has_weak_image_evidence([hit.similarity])
     ]
     if image_evidence:
         # Stage 1 is asked first and usually declines: qwen2.5:3b returns
@@ -263,9 +371,13 @@ async def search(
         # this cannot talk the system into or out of refusing - refusal is measured
         # separately and must not move because a ranking signal improved.
         wanted_type = filters.document_type or classify(text=payload.query)
-        ranked = fuse_results(
-            ranked, image_evidence, payload.limit, wanted_type=wanted_type
-        )
+        ranked = fuse_results(ranked, image_evidence, payload.limit, wanted_type=wanted_type)
+
+    if wanted_type:
+        ranked = [
+            replace(r, rank=i)
+            for i, r in enumerate((r for r in ranked if r.document_type in (None, wanted_type)), 1)
+        ]
 
     # Raw similarity, not boosted - a filter guess must not talk the system out of
     # refusing. See boosted_score in services/search.py.
@@ -287,9 +399,11 @@ async def search(
         held = await MemoryRepository(session, user_id).document_types()
         type_mismatch = should_refuse(filters.document_type, held)
 
-    text_weak = has_weak_evidence([outcome.raw_top_score] if outcome.results else [])
+    text_weak = not lexical_ids and has_weak_evidence(
+        [outcome.raw_top_score] if outcome.results else []
+    )
     image_weak = not image_evidence
-    if type_mismatch or (text_weak and image_weak):
+    if not ranked or type_mismatch or (text_weak and image_weak):
         return SearchResponse(
             refused=True,
             reason=(
@@ -311,7 +425,8 @@ async def search(
             ),
             stage1_skipped=skipped,
             stage1_skip_reason=why(payload.query) if skipped else None,
-            degraded_message=describe(health().status()) if payload.stage1 else None,
+            degraded_message=embedding_degraded
+            or (describe(health().status()) if payload.stage1 else None),
         )
 
     return SearchResponse(
@@ -324,12 +439,11 @@ async def search(
         filters=filters.raw or None,
         stage1_ms=stage1_ms,
         stage1_failed=payload.stage1 and not skipped and filters.failed,
-        stage1_failure_reason=(
-                filters.failure_reason if filters.failed and not skipped else None
-            ),
+        stage1_failure_reason=(filters.failure_reason if filters.failed and not skipped else None),
         stage1_skipped=skipped,
         stage1_skip_reason=why(payload.query) if skipped else None,
-        degraded_message=describe(health().status()) if payload.stage1 else None,
+        degraded_message=embedding_degraded
+        or (describe(health().status()) if payload.stage1 else None),
         results=[
             SearchResult(
                 rank=r.rank,
@@ -343,11 +457,21 @@ async def search(
                 matched_chunk_id=str(r.matched_chunk_id) if r.matched_chunk_id else None,
                 page=r.page,
                 byte_size=r.byte_size,
-                thumbnail_url=(
-                    f"/memories/{r.memory_id}/thumbnail" if r.has_thumbnail else None
-                ),
+                thumbnail_url=(f"/memories/{r.memory_id}/thumbnail" if r.has_thumbnail else None),
                 file_url=f"/memories/{r.memory_id}/file",
                 removed_at=r.removed_at.isoformat() if r.removed_at else None,
+                document_type=r.document_type,
+                document_label=r.document_type.replace("_", " ").title()
+                if r.document_type
+                else None,
+                match_explanation=(
+                    "Recognized document type from contents or filename"
+                    if wanted_type and r.document_type == wanted_type
+                    else "Matched words in the document or filename"
+                    if r.memory_id in lexical_ids
+                    else "Similar meaning or visual appearance — check the preview"
+                ),
+                uncertain=r.memory_id not in lexical_ids and r.raw_score < 0.5,
             )
             for r in ranked
         ],

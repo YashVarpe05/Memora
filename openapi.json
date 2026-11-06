@@ -1,6 +1,31 @@
 {
   "components": {
     "schemas": {
+      "Body_enqueue_index_jobs_post": {
+        "properties": {
+          "device_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device Path"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_enqueue_index_jobs_post",
+        "type": "object"
+      },
       "Body_upload_document_uploads_post": {
         "properties": {
           "device_path": {
@@ -124,6 +149,61 @@
         "title": "DeviceToken",
         "type": "object"
       },
+      "EmbeddingCoverageResponse": {
+        "properties": {
+          "available_documents": {
+            "title": "Available Documents",
+            "type": "integer"
+          },
+          "configured": {
+            "title": "Configured",
+            "type": "boolean"
+          },
+          "model_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Ready"
+          },
+          "no_text_documents": {
+            "title": "No Text Documents",
+            "type": "integer"
+          },
+          "pending_documents": {
+            "title": "Pending Documents",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "semantic_documents": {
+            "title": "Semantic Documents",
+            "type": "integer"
+          },
+          "text_documents": {
+            "title": "Text Documents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "provider",
+          "configured",
+          "model_ready",
+          "available_documents",
+          "text_documents",
+          "semantic_documents",
+          "pending_documents",
+          "no_text_documents"
+        ],
+        "title": "EmbeddingCoverageResponse",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -158,6 +238,84 @@
           "environment"
         ],
         "title": "HealthResponse",
+        "type": "object"
+      },
+      "JobResponse": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "filename": {
+            "title": "Filename",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "filename",
+          "status",
+          "attempts",
+          "error",
+          "result"
+        ],
+        "title": "JobResponse",
+        "type": "object"
+      },
+      "JobsResponse": {
+        "properties": {
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "jobs": {
+            "items": {
+              "$ref": "#/components/schemas/JobResponse"
+            },
+            "title": "Jobs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "counts",
+          "jobs"
+        ],
+        "title": "JobsResponse",
         "type": "object"
       },
       "PairingClaim": {
@@ -256,6 +414,11 @@
             "title": "Role",
             "type": "string"
           },
+          "search_mode": {
+            "default": "hybrid",
+            "title": "Search Mode",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -280,6 +443,18 @@
             "default": false,
             "title": "Complete",
             "type": "boolean"
+          },
+          "path_prefix": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Path Prefix"
           },
           "paths": {
             "items": {
@@ -333,6 +508,11 @@
       },
       "SearchRequest": {
         "properties": {
+          "hybrid": {
+            "default": true,
+            "title": "Hybrid",
+            "type": "boolean"
+          },
           "images": {
             "default": true,
             "title": "Images",
@@ -497,12 +677,39 @@
             "title": "Byte Size",
             "type": "integer"
           },
+          "document_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Label"
+          },
+          "document_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Type"
+          },
           "file_url": {
             "title": "File Url",
             "type": "string"
           },
           "filename": {
             "title": "Filename",
+            "type": "string"
+          },
+          "match_explanation": {
+            "default": "Matched document contents",
+            "title": "Match Explanation",
             "type": "string"
           },
           "matched_chunk_id": {
@@ -576,6 +783,11 @@
           "title": {
             "title": "Title",
             "type": "string"
+          },
+          "uncertain": {
+            "default": false,
+            "title": "Uncertain",
+            "type": "boolean"
           }
         },
         "required": [
@@ -724,6 +936,31 @@
         ]
       }
     },
+    "/device/identity": {
+      "get": {
+        "operationId": "device_identity_device_identity_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Device Identity Device Identity Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Device Identity",
+        "tags": [
+          "pairing"
+        ]
+      }
+    },
     "/device/reconcile": {
       "post": {
         "operationId": "reconcile_device_device_reconcile_post",
@@ -809,6 +1046,208 @@
         ]
       }
     },
+    "/index/coverage": {
+      "get": {
+        "operationId": "embedding_coverage_index_coverage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingCoverageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Embedding Coverage",
+        "tags": [
+          "indexing"
+        ]
+      }
+    },
+    "/index/jobs": {
+      "get": {
+        "operationId": "jobs_index_jobs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Jobs",
+        "tags": [
+          "indexing"
+        ]
+      },
+      "post": {
+        "operationId": "enqueue_index_jobs_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_enqueue_index_jobs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enqueue",
+        "tags": [
+          "indexing"
+        ]
+      }
+    },
+    "/index/jobs/{job_id}": {
+      "get": {
+        "operationId": "job_status_index_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Job Status",
+        "tags": [
+          "indexing"
+        ]
+      }
+    },
+    "/index/jobs/{job_id}/retry": {
+      "post": {
+        "operationId": "retry_index_jobs__job_id__retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Job Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Retry",
+        "tags": [
+          "indexing"
+        ]
+      }
+    },
     "/memories/{memory_id}": {
       "delete": {
         "description": "Rows, vectors and the file itself.\n\nPRODUCT.md claims erasure is demonstrable. A row removed while the document survives\non disk is not erasure, so the blob goes with it.",
@@ -882,6 +1321,56 @@
           }
         },
         "summary": "Get File",
+        "tags": [
+          "files"
+        ]
+      }
+    },
+    "/memories/{memory_id}/pages/{page}": {
+      "get": {
+        "operationId": "get_pdf_page_memories__memory_id__pages__page__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Memory Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "page",
+            "required": true,
+            "schema": {
+              "title": "Page",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Pdf Page",
         "tags": [
           "files"
         ]

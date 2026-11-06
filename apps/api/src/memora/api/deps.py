@@ -4,7 +4,7 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import Depends
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memora.config import Settings, get_settings
@@ -14,17 +14,22 @@ SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
+async def current_user_id(request: Request, settings: SettingsDep) -> UUID:
+    from memora.api.routers.pairing import get_store
 
-async def current_user_id(settings: SettingsDep) -> UUID:
-    """The server-derived identity.
-
-    Phase 1 has no auth, so this returns the dev UUID from settings. Phase 2 swaps the
-    body for "decode the Bearer token" and nothing downstream changes - which is the
-    point of routing it through a dependency now rather than passing a literal around.
-
-    It is never read from a request body, query string, or header.
-    """
-    return settings.dev_user_id
+    # Use the same overrideable store as the authentication gate.
+    provider = request.app.dependency_overrides.get(get_store, get_store)
+    header = request.headers.get("authorization", "")
+    token = header[7:] if header.lower().startswith("bearer ") else None
+    identity = provider().identity(token)
+    if identity:
+        return identity
+    if token or settings.is_production:
+        raise HTTPException(401, "Connect this device to Memora again.")
+    client = request.client.host if request.client else ""
+    if not settings.require_pairing or client in ("127.0.0.1", "::1", "localhost"):
+        return settings.dev_user_id
+    raise HTTPException(401, "Connect this device to Memora first.")
 
 
 CurrentUserDep = Annotated[UUID, Depends(current_user_id)]

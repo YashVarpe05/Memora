@@ -10,7 +10,7 @@ services:
       POSTGRES_DB: memora
     # Host port 5433 — 5432 is taken by the local Windows Postgres service.
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - memora-pgdata:/var/lib/postgresql/data
       - ./infra/db/init:/docker-entrypoint-initdb.d:ro
@@ -25,7 +25,7 @@ services:
     container_name: memora-redis
     command: ["redis-server", "--appendonly", "yes"]
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - memora-redisdata:/data
     healthcheck:

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from pydantic import BaseModel
 
 from memora.api.deps import CurrentUserDep, DbDep
+from memora.config import get_settings
 from memora.db.models.chunk import Chunk
 from memora.repositories.chunk import ChunkRepository
 from memora.repositories.image_embedding import ImageEmbeddingRepository
@@ -19,15 +21,16 @@ from memora.services.chunking import (
     chunk_per_block,
 )
 from memora.services.document_type import classify
-from memora.services.embedding import Embedder, build_embedder
+from memora.services.embedding import Embedder, build_embedder, embedding_fingerprint
 from memora.services.extraction import (
+    DocumentError,
     Extracted,
-    extract_blocks,
     extract_calendar,
     extract_chat,
     extract_email,
     extract_image_blocks,
-    extract_pdf_via_ocr,
+    extract_office_or_text,
+    extract_pdf,
     image_mime,
     is_pdf,
     text_kind,
@@ -46,7 +49,12 @@ router = APIRouter(tags=["uploads"])
 
 MAX_BYTES = 25 * 1024 * 1024
 
-TEXT_MIME = {"calendar": "text/calendar", "email": "message/rfc822", "chat": "text/plain"}
+TEXT_MIME = {
+    "calendar": "text/calendar",
+    "email": "message/rfc822",
+    "chat": "text/plain",
+    "document": "application/octet-stream",
+}
 
 
 class UploadResponse(BaseModel):
@@ -58,7 +66,9 @@ class UploadResponse(BaseModel):
     deduplicated: bool
 
 
-def get_embedder() -> Embedder:
+def get_embedder() -> Embedder | None:
+    if get_settings().embedding_provider == "lexical":
+        return None
     return build_embedder()
 
 
@@ -66,7 +76,7 @@ def get_counter() -> TokenCounter:
     return TiktokenCounter()
 
 
-def get_image_embedder() -> ImageEmbedder:
+def get_image_embedder() -> ImageEmbedder | None:
     return build_image_embedder()
 
 
@@ -78,10 +88,10 @@ def get_blob_store() -> BlobStore:
     return build_blob_store()
 
 
-EmbedderDep = Annotated[Embedder, Depends(get_embedder)]
+EmbedderDep = Annotated[Embedder | None, Depends(get_embedder)]
 CounterDep = Annotated[TokenCounter, Depends(get_counter)]
 OcrDep = Annotated[OcrClient, Depends(get_ocr)]
-ImageEmbedderDep = Annotated[ImageEmbedder, Depends(get_image_embedder)]
+ImageEmbedderDep = Annotated[ImageEmbedder | None, Depends(get_image_embedder)]
 BlobStoreDep = Annotated[BlobStore, Depends(get_blob_store)]
 DocumentUpload = Annotated[UploadFile, File(...)]
 # Where the device scan found this file. Absent for a hand-uploaded document, which is
@@ -102,8 +112,10 @@ async def upload_document(
     blobs: BlobStoreDep,
     device_path: DevicePath = None,
 ) -> UploadResponse:
-    data = await file.read()
-    filename = file.filename or "upload"
+    data = await file.read(MAX_BYTES + 1)
+    filename = (file.filename or "upload")[:512]
+    if device_path is not None and (not device_path or len(device_path) > 1024):
+        raise HTTPException(422, 'Device path must contain 1–1024 characters.')
 
     if len(data) > MAX_BYTES:
         raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "File exceeds 25 MB")
@@ -113,24 +125,18 @@ async def upload_document(
     # Store the bytes first. Extraction can fail; the document should still be on disk
     # and re-processable rather than lost with the request.
     stored = blobs.put(user_id, data)
+    import hashlib
+
+    from sqlalchemy import text
+
+    lock_key = int.from_bytes(
+        hashlib.sha256(f"{user_id}:{stored.content_hash}".encode()).digest()[:8], "big", signed=True
+    )
+    await session.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
     existing = await memories.find_by_hash(stored.content_hash)
     if existing is not None:
-        # Same owner, same bytes. Nothing to re-CHUNK - but a capability added since this
-        # document was ingested still has to reach it. Returning early here is what left
-        # 11 of 14 documents without a CLIP vector: the hash matched, and every
-        # derivation step below was skipped forever.
-        #
-        # Only artifacts that are actually missing are produced, so a genuine duplicate
-        # upload still costs one query. services/backfill.py does the same thing in bulk
-        # for documents nobody re-uploads.
-        from memora.services.backfill import ImageEmbeddingBackfiller, run_backfill
-
-        await run_backfill(
-            session,
-            user_id,
-            [ImageEmbeddingBackfiller(image_embedder, blobs)],
-            apply=True,
-        )
+        if device_path:
+            await memories.attach_path(existing, device_path)
         chunk_count = await ChunkRepository(session, user_id).count_for_memory(existing.id)
         return UploadResponse(
             memory_id=str(existing.id),
@@ -144,16 +150,14 @@ async def upload_document(
     kind = text_kind(data)
 
     if is_pdf(data):
-        title, blocks = extract_blocks(data)
-        if not blocks:
-            # A printed email or a scan: pages are images, so read them as images.
-            try:
-                title, blocks = await extract_pdf_via_ocr(data, ocr, filename)
-            except OcrUnavailable as exc:
-                raise HTTPException(
-                    status.HTTP_503_SERVICE_UNAVAILABLE,
-                    f"This PDF has no text layer and OCR is unavailable: {exc}",
-                ) from exc
+        try:
+            title, blocks = await extract_pdf(data, ocr, filename)
+        except DocumentError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        except OcrUnavailable as exc:
+            raise HTTPException(
+                503, "OCR is temporarily unavailable. Indexing will retry."
+            ) from exc
         extracted = Extracted(title=title, blocks=blocks, source_type="pdf")
     elif image_mime(data):
         try:
@@ -176,15 +180,31 @@ async def upload_document(
             # that matches nothing, and nobody notices until a search fails.
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
     else:
-        raise HTTPException(
-            status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            "Supported: PDF, images, .ics calendars, .eml email, WhatsApp .txt exports.",
-        )
+        from pathlib import Path
 
+        if Path(filename).suffix.lower() not in (".txt", ".md", ".doc", ".docx"):
+            raise HTTPException(415, "Unsupported format. Choose PDF, image, text or Word.")
+        try:
+            extracted = await asyncio.to_thread(extract_office_or_text, data, filename)
+        except DocumentError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    from dataclasses import replace
+
+    from memora.services.document_dates import document_date
+
+    if extracted.occurred_at is None:
+        date = document_date(" ".join(b.text for b in extracted.blocks)[:1500])
+        if date:
+            extracted = replace(
+                extracted,
+                occurred_at=date,
+                blocks=[replace(b, occurred_at=b.occurred_at or date) for b in extracted.blocks],
+            )
     title, blocks, source_type = extracted.title, extracted.blocks, extracted.source_type
 
     chunker = chunk_per_block if extracted.per_block else chunk_blocks
-    text_chunks = chunker(blocks, title=title, counter=counter)
+    text_chunks = await asyncio.to_thread(chunker, blocks, title=title, counter=counter)
 
     # An image with no text used to be rejected here, because it was unsearchable: no
     # chunk, no vector, not ranked badly but absent. CLIP changes that - the picture
@@ -205,13 +225,19 @@ async def upload_document(
     masked_text = mask_all([c.text for c in text_chunks])
     masked_prefix = mask_all([c.contextual_prefix for c in text_chunks])
 
-    vectors = await embedder.embed(
-        mask_all(
-            [
-                f"{prefix.value}\n\n{body.value}" if prefix.value else body.value
-                for prefix, body in zip(masked_prefix, masked_text, strict=True)
-            ]
+    # NULL means no semantic index, never a fabricated vector. The real masked
+    # text still powers BM25/type search in the explicitly selected lexical mode.
+    vectors = (
+        await embedder.embed(
+            mask_all(
+                [
+                    f"{prefix.value}\n\n{body.value}" if prefix.value else body.value
+                    for prefix, body in zip(masked_prefix, masked_text, strict=True)
+                ]
+            )
         )
+        if embedder is not None
+        else [None] * len(text_chunks)
     )
 
     chunks = ChunkRepository(session, user_id)
@@ -232,7 +258,7 @@ async def upload_document(
         filename=filename,
         # The head only. A receipt says so at the top; a calendar that mentions the
         # word once, three hundred events down, is not a receipt.
-        text=" ".join(b.text for b in extracted.blocks[:5]),
+        text=" ".join(b.text for b in extracted.blocks)[:1500],
     )
 
     # The image vector, before the row so a CLIP failure does not leave a memory with
@@ -268,6 +294,8 @@ async def upload_document(
         occurred_at=extracted.occurred_at,
         device_path=device_path,
     )
+    if device_path:
+        await memories.attach_path(memory, device_path)
     await chunks.add_many(
         memory.id,
         [
@@ -280,6 +308,7 @@ async def upload_document(
                 occurred_at=c.occurred_at,
                 meta=c.meta or {},
                 embedding=vector,
+                embedding_model=embedding_fingerprint(embedder) if vector is not None else None,
             )
             for c, body, prefix, vector in zip(
                 text_chunks, masked_text, masked_prefix, vectors, strict=True
@@ -288,9 +317,7 @@ async def upload_document(
     )
 
     if image_vector is not None:
-        await ImageEmbeddingRepository(session, user_id).add(
-            memory.id, image_vector, image_model
-        )
+        await ImageEmbeddingRepository(session, user_id).add(memory.id, image_vector, image_model)
 
     # Counted by type only, never by value.
     masked_count = sum(len(m.detections) for m in [*masked_text, *masked_prefix])

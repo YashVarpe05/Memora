@@ -62,20 +62,7 @@ function stateOf(body: SearchResponse): Stage1State {
   return 'applied';
 }
 
-/**
- * Two arms in parallel, not a spinner.
- *
- * Dense-only returns in about 50ms at Recall@1 0.842, so the right document is already
- * first roughly five times in six. Stage 1 arrives 2-3 seconds later and re-ranks to
- * 0.947. Results appear immediately and improve.
- *
- * The reason to prefer this over a spinner is not speed, it is failure behaviour: when
- * stage 1 dies - quota, transport, parse - the user already has results and the banner
- * explains why they may be worse. A spinner turns the same failure into three seconds of
- * waiting that resolve into an error, which is the worst version of the demo-day failure
- * the whole silent-degradation guard exists to prevent. It has now happened twice on live
- * data.
- */
+/** One hybrid request per query; abort superseded searches and ignore stale responses. */
 export function useSearch() {
   const [state, setState] = useState<SearchState>(EMPTY);
   const inflight = useRef<AbortController | null>(null);
@@ -90,30 +77,11 @@ export function useSearch() {
 
     setState({ ...EMPTY, status: 'searching', query: trimmed });
 
-    // Fast arm. Whatever it returns goes on screen straight away.
-    const fast = post(trimmed, false, controller.signal)
-      .then((body) => {
-        setState((prev) =>
-          // Only paint if stage 1 has not already overtaken us. On a warm cache it can.
-          prev.query !== trimmed || prev.stage1 !== 'pending'
-            ? prev
-            : {
-                ...prev,
-                status: 'searching',
-                results: body.results,
-                refused: body.refused,
-                reason: body.reason ?? null,
-              },
-        );
-      })
-      .catch(() => undefined);
-
-    // Slow arm. Re-ranks in place, and brings the filters that explain the movement.
     const understood = post(trimmed, true, controller.signal)
       .then((body) => {
         const stage1 = stateOf(body);
         setState((prev) =>
-          prev.query !== trimmed
+          inflight.current !== controller || prev.query !== trimmed
             ? prev
             : {
                 ...prev,
@@ -135,9 +103,9 @@ export function useSearch() {
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
-        // The fast arm's results stay on screen. That is the whole point.
+        // Keep any results already on screen when a request fails.
         setState((prev) =>
-          prev.query !== trimmed
+          inflight.current !== controller || prev.query !== trimmed
             ? prev
             : {
                 ...prev,
@@ -149,7 +117,7 @@ export function useSearch() {
         );
       });
 
-    await Promise.all([fast, understood]);
+    await understood;
   }, []);
 
   const reset = useCallback(() => {

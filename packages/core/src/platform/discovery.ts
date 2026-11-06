@@ -22,6 +22,8 @@ export interface DiscoveredFile {
   size: number;
   /** Epoch ms. Drives newest-first ordering and the incremental high-water mark. */
   modifiedAt: number;
+  /** Native change generation, when available. Detects changes within one timestamp tick. */
+  revision?: string;
   mimeType: string;
   /** Device-relative folder, e.g. `DCIM/Camera/`. Shown while scanning so the user can
    *  see what is being read, and useful for diagnosing filter rules against reality. */

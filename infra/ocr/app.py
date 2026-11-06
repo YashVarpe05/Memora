@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
+import subprocess
 import time
 from typing import Annotated
 
@@ -45,7 +47,7 @@ def _installed() -> list[str]:
     import importlib.util
 
     engines = []
-    if importlib.util.find_spec("pytesseract"):
+    if shutil.which("tesseract"):
         engines.append("tesseract")
     if importlib.util.find_spec("paddleocr") and importlib.util.find_spec("paddle"):
         engines.append("paddleocr")
@@ -100,11 +102,16 @@ def _prepare(data: bytes):
 
 
 def _read_tesseract(data: bytes) -> str:
-    import pytesseract
-
     img = _prepare(data)
     try:
-        return pytesseract.image_to_string(img)
+        png = io.BytesIO()
+        img.save(png, format="PNG")
+        result = subprocess.run(
+            ["tesseract", "stdin", "stdout", "-l",
+             os.environ.get("OCR_LANGUAGES", "eng+hin+mar")],
+            input=png.getvalue(), capture_output=True, check=True, timeout=120,
+        )
+        return result.stdout.decode("utf-8")
     finally:
         img.close()
 

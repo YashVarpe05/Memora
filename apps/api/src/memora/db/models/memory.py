@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,9 +41,7 @@ class Memory(Base):
 
     # Named in the stage 1 filter contract, so it will be filtered on.
     sender: Mapped[str | None] = mapped_column(String(320), nullable=True)
-    occurred_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Where the device scan found this file. Null for anything uploaded by hand.
     #
@@ -53,9 +52,9 @@ class Memory(Base):
     # Set when a full scan no longer finds the file on the device. The memory survives:
     # "I know I had it" is the problem this product exists to solve, so forgetting a
     # document because it was tidied away would be the system reproducing that failure.
-    removed_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
-    )
+    device_paths: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
+
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

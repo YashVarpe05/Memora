@@ -25,19 +25,59 @@ from __future__ import annotations
 
 import re
 
+from memora.services.lexical import words as unicode_words
+
 # type -> the words that identify it. Matched against filename and extracted text.
 # Ordered most specific first; the first match wins, so "pan card" beats a stray "card".
 VOCABULARY: dict[str, tuple[str, ...]] = {
-    "aadhaar": ("aadhaar", "aadhar", "आधार", "uidai", "unique identification authority"),
-    "pan": ("pan card", "permanent account number", "income tax department"),
+    "aadhaar": (
+        "aadhaar",
+        "aadhar",
+        "adhaar",
+        "adhar",
+        "adhaaar",
+        "आधार",
+        "uidai",
+        "unique identification authority",
+    ),
+    "pan": ("pan card", "permanent account number", "income tax department", "पैन", "पॅन"),
     "passport": ("passport", "republic of india passport"),
-    "marksheet": ("marksheet", "mark sheet", "statement of marks", "grade card", "transcript"),
-    "receipt": ("receipt", "paid vide", "amount paid", "payment receipt", "fee receipt"),
+    "marksheet": (
+        "marksheet",
+        "mark sheet",
+        "statement of marks",
+        "grade card",
+        "transcript",
+        "गुणपत्रिका",
+        "अंकतालिका",
+        "मार्कशीट",
+    ),
+    "receipt": (
+        "receipt",
+        "paid vide",
+        "amount paid",
+        "payment receipt",
+        "fee receipt",
+        "पावती",
+        "रसीद",
+        "rasid",
+        "pavti",
+    ),
     "admit_card": ("admit card", "hall ticket", "roll number slip"),
-    "certificate": ("certificate", "is hereby certified", "certified that"),
+    "certificate": ("certificate", "is hereby certified", "certified that", "प्रमाणपत्र", "दाखला"),
     "id_card": ("identity card", "student id", "college id", "employee id"),
     "resume": ("resume", "curriculum vitae"),
     "invoice": ("invoice", "tax invoice", "bill to"),
+    "bill": (
+        "electricity bill",
+        "utility bill",
+        "light bill",
+        "वीज बिल",
+        "बिजली बिल",
+        "bijli",
+        "mahavitaran",
+    ),
+    "letter": ("offer letter", "appointment letter", "joining letter", "नियुक्ती पत्र", "नियुक्ति पत्र"),
     "ticket": ("boarding pass", "pnr", "e-ticket"),
 }
 
@@ -67,12 +107,13 @@ def classify(filename: str | None = None, text: str | None = None) -> str | None
     mentions the word "receipt" in one event three hundred lines down is not a receipt,
     and reading the whole document would label it as one.
     """
-    hay = _haystack(filename, (text or "")[:1500])
-    if not hay:
-        return None
-    for label, words in VOCABULARY.items():
-        if any(word in hay for word in words):
-            return label
+    # Contents win over a misleading filename. Match full words/phrases, not
+    # substrings such as "certificate" inside a longer unrelated word.
+    for hay in (_haystack((text or "")[:1500]), _haystack(filename)):
+        normalized = f" {' '.join(unicode_words(hay))} "
+        for label, aliases in VOCABULARY.items():
+            if any(f" {' '.join(unicode_words(alias))} " in normalized for alias in aliases):
+                return label
     return None
 
 
@@ -84,18 +125,20 @@ def normalise(requested: str | None) -> str | None:
     """
     if not requested:
         return None
-    word = re.sub(r"[^a-z ]", "", requested.strip().lower())
+    # The same Unicode word boundaries apply to hints and document contents.
+    # ASCII stripping loses Hindi/Marathi and turns "admit_card" into "admitcard".
+    word = " ".join(unicode_words(requested))
     if not word or word in NOT_A_TYPE:
         return None
-    if word in VOCABULARY:
-        return word
     collapsed = word.replace(" ", "_")
     if collapsed in VOCABULARY:
         return collapsed
-    for label, words in VOCABULARY.items():
-        if any(word in synonym or synonym in word for synonym in words):
-            return label
-    return None
+    # Explicit canonical plurals retain useful hints such as "receipts" without
+    # treating arbitrary substrings like "res" as "resume" or "port" as "passport".
+    if collapsed.endswith("s") and collapsed[:-1] in VOCABULARY:
+        return collapsed[:-1]
+    return classify(text=word)
+
 
 
 def should_refuse(requested: str | None, present_in_corpus: set[str | None]) -> bool:

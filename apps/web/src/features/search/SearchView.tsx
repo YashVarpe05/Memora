@@ -11,9 +11,9 @@ import { useSearch, type SearchResult } from './useSearch';
 
 /** Real queries against the real corpus. They teach the interaction by example. */
 const EXAMPLES = [
-  'the whatsapp message from aradhana',
-  'the mail yash sent to rutuja',
-  'the uipath job in chennai',
+  'my Aadhaar card',
+  'माझी गुणपत्रिका',
+  'receipt from March',
 ];
 
 export function SearchView() {
@@ -70,7 +70,7 @@ export function SearchView() {
           so the banner is redundant when stage 1 failed and noise when it was skipped.
           It stays only while the outcome is still unknown.
         */}
-        {search.stage1 === 'pending' && <DegradedBanner message={search.degradedMessage} />}
+        <DegradedBanner message={search.degradedMessage} />
 
         {search.status === 'idle' && (
           <div className="flex flex-col gap-3 pt-6">
@@ -107,10 +107,9 @@ export function SearchView() {
             ) : (
               <>
                 {/* Refusal is a correct answer, not a crash. */}
-                <p className="text-sm font-medium text-ink">I don’t have that.</p>
+                <p className="text-sm font-medium text-ink">No matching document found.</p>
                 <p className="text-sm text-ink-muted">
-                  {search.reason ??
-                    'Nothing in your documents matches that description closely enough to show you.'}
+                  Nothing in this device’s indexed documents matches closely enough. Check indexing progress, or try another description.
                 </p>
               </>
             )}
@@ -137,7 +136,7 @@ export function SearchView() {
           // credible than one that silently returns nothing - and it sets up visual
           // search as the answer to a problem already seen.
           <p className="pt-2 text-xs text-ink-faint">
-            Some files contain no readable text and can’t be found by description yet.
+            Check the preview before choosing a document. If several cards match, Memora does not assume which one belongs to you.
           </p>
         )}
       </div>

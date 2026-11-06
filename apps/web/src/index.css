@@ -17,13 +17,13 @@
 
   --color-ink: oklch(22% 0.02 260);
   --color-ink-muted: oklch(52% 0.015 260);
-  --color-ink-faint: oklch(68% 0.012 260);
+  --color-ink-faint: oklch(54% 0.012 260);
 
-  --color-accent: oklch(58% 0.16 250);
+  --color-accent: oklch(52% 0.16 250);
   --color-accent-soft: oklch(95% 0.03 250);
   --color-accent-ink: oklch(100% 0 0);
 
-  --color-warn: oklch(62% 0.15 65);
+  --color-warn: oklch(50% 0.12 65);
   --color-warn-soft: oklch(96% 0.04 75);
 
   --radius-card: 0.875rem;
@@ -42,7 +42,7 @@
 
       --color-ink: oklch(96% 0.005 250);
       --color-ink-muted: oklch(72% 0.012 255);
-      --color-ink-faint: oklch(55% 0.015 258);
+      --color-ink-faint: oklch(70% 0.015 258);
 
       --color-accent: oklch(72% 0.14 240);
       --color-accent-soft: oklch(28% 0.05 250);

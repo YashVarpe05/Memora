@@ -84,9 +84,7 @@ class MemoryRepository(BaseRepository[Memory]):
             return None
 
         await self.session.execute(
-            sql_delete(Chunk).where(
-                Chunk.memory_id == memory.id, Chunk.user_id == self.user_id
-            )
+            sql_delete(Chunk).where(Chunk.memory_id == memory.id, Chunk.user_id == self.user_id)
         )
         await self.session.delete(memory)
         await self.session.flush()
@@ -99,12 +97,44 @@ class MemoryRepository(BaseRepository[Memory]):
         thousand bind parameters is the alternative, and it is both slower and capped by
         the driver's parameter limit.
         """
-        rows = await self.session.execute(
-            self.scoped()
-            .with_only_columns(Memory.device_path, Memory.id)
-            .where(Memory.device_path.is_not(None))
-        )
-        return {path: memory_id for path, memory_id in rows}
+        rows = (await self.session.execute(self.scoped())).scalars().all()
+        return {
+            path: memory.id
+            for memory in rows
+            for path in (
+                memory.device_paths or ([memory.device_path] if memory.device_path else [])
+            )
+        }
+
+    async def attach_path(self, memory: Memory, path: str) -> None:
+        if len(path) > 1024:
+            raise ValueError("Device path exceeds 1024 characters")
+        rows = (await self.session.execute(self.scoped())).scalars().all()
+        for other in rows:
+            if other.id != memory.id and path in (other.device_paths or []):
+                other.device_paths = [p for p in other.device_paths if p != path]
+                if other.device_path == path:
+                    other.device_path = other.device_paths[0] if other.device_paths else None
+                if not other.device_paths:
+                    from datetime import UTC
+
+                    other.removed_at = datetime.now(UTC)
+        memory.device_paths = list(dict.fromkeys([*(memory.device_paths or []), path]))
+        memory.device_path = path
+        memory.removed_at = None
+        await self.session.flush()
+
+    async def forget_missing_locations(self, missing_paths: set[str]) -> None:
+        rows = (await self.session.execute(self.scoped())).scalars().all()
+        for memory in rows:
+            paths = memory.device_paths or ([memory.device_path] if memory.device_path else [])
+            if not missing_paths.intersection(paths):
+                continue
+            memory.device_paths = [p for p in paths if p not in missing_paths]
+            if memory.device_paths:
+                memory.device_path = memory.device_paths[0]
+            # Keep the last location as history when all copies disappear. The document
+            # is marked removed; a later upload can restore any of its former locations.
 
     async def mark_removed(self, memory_ids: list[UUID], at: datetime) -> int:
         """The file is gone from the device; the memory is not.

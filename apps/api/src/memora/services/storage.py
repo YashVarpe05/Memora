@@ -24,7 +24,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from memora.config import get_settings
 from memora.paths import repo_root
@@ -89,7 +89,7 @@ class BlobStore:
         target.parent.mkdir(parents=True, exist_ok=True)
         # Write to a temporary name and rename, so a crash mid-write cannot leave a
         # truncated file sitting at the address of its own hash.
-        staging = target.with_name(content_hash + ".partial")
+        staging = target.with_name(content_hash + "." + uuid4().hex + ".partial")
         staging.write_bytes(data)
         staging.replace(target)
         return StoredBlob(content_hash, len(data), deduplicated=False)

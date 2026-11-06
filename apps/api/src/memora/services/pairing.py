@@ -1,38 +1,17 @@
-"""Pairing a phone with the machine that holds the documents.
-
-**This is a privacy property, not a convenience.** The demo runs over a phone hotspot, and
-the API serves the user's own documents - Aadhaar photos, marksheets, private messages.
-Anyone else on that network can reach the laptop's port. Without a token, "nothing leaves
-devices the user owns" is false the moment a second person joins the hotspot, and the
-architecture note in `prompts/capacitor-auto-scan.md` §1 stops being true.
-
-Two tokens, because they have different lifetimes and different exposure:
-
-- a **pairing code**, short, short-lived, displayed as a QR on the laptop. It is visible
-  to anyone who can see the screen, so it expires in minutes and is single-use.
-- a **device token**, long, long-lived, held only by the phone in `SecureStorage`. It never
-  appears on screen, in a URL, or in a log.
-
-Deliberately NOT user authentication. `current_user_id` is still the server-derived
-identity and phase 5 replaces it. This answers a narrower question - *is this request from
-a device the owner paired?* - and answering it does not require answering the other one.
-
-In-memory on purpose. Pairings live as long as the process, which is exactly the demo's
-lifetime, and a device token that does not survive a restart is a smaller problem than one
-persisted somewhere that has to be secured.
-"""
+"""Persistent, hashed device credentials. Each credential owns an isolated library."""
 
 from __future__ import annotations
 
+import hashlib
 import secrets
+import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from uuid import UUID, uuid4
 
-# Long enough that guessing is hopeless, short enough to render as a readable QR.
-PAIRING_CODE_BYTES = 6
+PAIRING_CODE_BYTES = 16
 DEVICE_TOKEN_BYTES = 32
-
-# The QR is on a screen in a room. It should stop working before the room empties.
 PAIRING_TTL = timedelta(minutes=5)
 
 
@@ -45,57 +24,77 @@ class Pairing:
         return (now or datetime.now(UTC)) >= self.expires_at
 
 
-class PairingStore:
-    """Outstanding pairing codes, and the device tokens they became."""
+def digest(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
 
-    def __init__(self) -> None:
-        self._pending: dict[str, Pairing] = {}
-        self._devices: set[str] = set()
+
+class PairingStore:
+    def __init__(self, path: str = ":memory:") -> None:
+        if path != ":memory:":
+            Path(path).parent.mkdir(parents=True, exist_ok=True)
+        self.db = sqlite3.connect(path, check_same_thread=False, timeout=30)
+        self.db.execute("PRAGMA journal_mode=WAL")
+        self.db.execute("CREATE TABLE IF NOT EXISTS codes (hash TEXT PRIMARY KEY, expires REAL)")
+        self.db.execute(
+            "CREATE TABLE IF NOT EXISTS devices (hash TEXT PRIMARY KEY, id TEXT UNIQUE)"
+        )
+        self.db.commit()
 
     def start(self, now: datetime | None = None) -> Pairing:
-        """A new code for the QR. Any previous unclaimed code stays valid until it
-        expires - showing a second QR should not silently break the first."""
-        pairing = Pairing(
-            code=secrets.token_urlsafe(PAIRING_CODE_BYTES),
-            expires_at=(now or datetime.now(UTC)) + PAIRING_TTL,
-        )
-        self._pending[pairing.code] = pairing
+        now = now or datetime.now(UTC)
+        pairing = Pairing(secrets.token_urlsafe(PAIRING_CODE_BYTES), now + PAIRING_TTL)
+        with self.db:
+            self.db.execute("DELETE FROM codes WHERE expires <= ?", (now.timestamp(),))
+            self.db.execute(
+                "INSERT INTO codes VALUES (?, ?)",
+                (digest(pairing.code), pairing.expires_at.timestamp()),
+            )
         return pairing
 
     def claim(self, code: str, now: datetime | None = None) -> str | None:
-        """Exchange a pairing code for a device token. Single use.
-
-        Returns None for an unknown, expired, or already-claimed code - the caller must
-        not be able to tell which, so a wrong guess reveals nothing about a right one.
-        """
-        pairing = self._pending.pop(code, None)
-        if pairing is None or pairing.expired(now):
-            return None
-        token = secrets.token_urlsafe(DEVICE_TOKEN_BYTES)
-        self._devices.add(token)
+        with self.db:
+            row = self.db.execute(
+                "DELETE FROM codes WHERE hash = ? RETURNING expires", (digest(code),)
+            ).fetchone()
+            if row is None or row[0] <= (now or datetime.now(UTC)).timestamp():
+                return None
+            token = secrets.token_urlsafe(DEVICE_TOKEN_BYTES)
+            self.db.execute("INSERT INTO devices VALUES (?, ?)", (digest(token), str(uuid4())))
         return token
 
-    def is_paired(self, token: str | None) -> bool:
+    def identity(self, token: str | None) -> UUID | None:
         if not token:
-            return False
-        # Constant-time against every known token: a timing difference would leak how
-        # much of a guess was correct.
-        return any(secrets.compare_digest(token, known) for known in self._devices)
+            return None
+        row = self.db.execute("SELECT id FROM devices WHERE hash = ?", (digest(token),)).fetchone()
+        return UUID(row[0]) if row else None
+
+    def identities(self) -> list[UUID]:
+        return [UUID(row[0]) for row in self.db.execute("SELECT id FROM devices")]
+
+    def is_paired(self, token: str | None) -> bool:
+        return self.identity(token) is not None
 
     def revoke_all(self) -> int:
-        """Unpair every device. The user-facing panic button."""
-        count = len(self._devices)
-        self._devices.clear()
-        self._pending.clear()
+        count = self.device_count
+        with self.db:
+            self.db.execute("DELETE FROM devices")
+            self.db.execute("DELETE FROM codes")
         return count
 
     @property
     def device_count(self) -> int:
-        return len(self._devices)
+        return self.db.execute("SELECT COUNT(*) FROM devices").fetchone()[0]
 
 
-_store = PairingStore()
+_store: PairingStore | None = None
 
 
 def store() -> PairingStore:
+    global _store
+    if _store is None:
+        from memora.config import get_settings
+        from memora.paths import repo_root
+
+        path = Path(get_settings().pairing_store)
+        _store = PairingStore(str(path if path.is_absolute() else repo_root() / path))
     return _store

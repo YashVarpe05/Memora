@@ -31,6 +31,7 @@ class ReconcileRequest(BaseModel):
     paths: list[str] = Field(default_factory=list)
     # Whether the scan enumerated the whole device. Only a complete scan can prove absence.
     complete: bool = False
+    path_prefix: str | None = Field(default=None, max_length=1024)
 
 
 class ReconcileResponse(BaseModel):
@@ -63,15 +64,24 @@ async def reconcile_device(
             ),
         )
 
+    from memora.repositories.index_job import IndexJobRepository
+
+    await IndexJobRepository(session, user_id).reconcile(set(payload.paths), payload.path_prefix)
     known = await memories.device_paths()
+    if payload.path_prefix:
+        known = {p: mid for p, mid in known.items() if p.startswith(payload.path_prefix)}
     seen = set(payload.paths)
 
-    missing = [memory_id for path, memory_id in known.items() if path not in seen]
-    returned = [memory_id for path, memory_id in known.items() if path in seen]
+    returned = list({memory_id for path, memory_id in known.items() if path in seen})
+    # Another copy, including one outside a browser folder scan, keeps a document present.
+    all_paths = await memories.device_paths()
+    outside = {mid for p, mid in all_paths.items() if p not in known}
+    missing = list(set(known.values()) - set(returned) - outside)
 
     marked = await memories.mark_removed(missing, datetime.now(UTC))
     # A file can come back - restored from a backup, or moved out and back again.
     restored = await memories.mark_present(returned)
+    await memories.forget_missing_locations(set(known) - seen)
 
     return ReconcileResponse(
         seen=len(seen),
@@ -79,4 +89,3 @@ async def reconcile_device(
         restored=restored,
         reconciled=True,
     )
-

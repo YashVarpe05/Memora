@@ -62,6 +62,10 @@ def _mask(field: str, value: object) -> str:
     if value is None:
         return "unset"
     text = str(value)
+    if field == "database_url":
+        from sqlalchemy.engine import make_url
+
+        return make_url(text).render_as_string(hide_password=True)
     if field in SECRET:
         # Enough to tell two keys apart, not enough to use. Both length and prefix,
         # because the two keys in play differ in both.

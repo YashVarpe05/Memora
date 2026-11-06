@@ -51,9 +51,7 @@ assert not (set(SOURCE_MAP) - SOURCE_WORDS), "SOURCE_MAP must draw only on SOURC
 
 # "last year", "this month". Resolved to a concrete range here rather than deferred, which
 # is strictly more than the model does with the same phrase.
-_RELATIVE = re.compile(
-    r"\b(last|this|past|previous)\s+(year|month|week)\b", re.IGNORECASE
-)
+_RELATIVE = re.compile(r"\b(last|this|past|previous)\s+(year|month|week)\b", re.IGNORECASE)
 
 # Words that sit inside a sender phrase without being a person.
 #
@@ -107,6 +105,15 @@ def _sender(query: str) -> str | None:
 
 def _window(query: str, now: datetime) -> tuple[datetime | None, datetime | None, str | None]:
     """A concrete date range from a relative phrase, plus what was left unresolved."""
+    from memora.services.document_dates import month_window
+
+    explicit = month_window(query, now)
+    if explicit:
+        return *explicit, None
+    if "semester" in query.casefold():
+        # Academic calendars vary. Preserve the phrase for semantic matching instead
+        # of inventing dates for the user's institution.
+        return None, None, "last semester"
     match = _RELATIVE.search(query)
     if match is None:
         return None, None, None
@@ -156,5 +163,12 @@ class RulesQueryUnderstanding:
             # construction, and a health check that ever reports otherwise is watching
             # the wrong arm.
             failed=False,
-            raw={"provider": "rules"},
+            raw={
+                "provider": "rules",
+                "document_type": classify(text=query),
+                "source_types": list(_source_types(query)),
+                "sender": _sender(query),
+                "after": after.isoformat() if after else None,
+                "before": before.isoformat() if before else None,
+            },
         )

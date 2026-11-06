@@ -46,6 +46,7 @@ public class FileDiscoveryPlugin extends Plugin {
         MediaStore.Files.FileColumns.DISPLAY_NAME,
         MediaStore.Files.FileColumns.SIZE,
         MediaStore.Files.FileColumns.DATE_MODIFIED,
+        MediaStore.MediaColumns.GENERATION_MODIFIED,
         MediaStore.Files.FileColumns.MIME_TYPE,
         MediaStore.Files.FileColumns.RELATIVE_PATH
     };
@@ -95,7 +96,7 @@ public class FileDiscoveryPlugin extends Plugin {
      * Below this, a file is an icon, a sprite or a sticker rather than a document. Cheap
      * to apply here: it removes rows before any of them are read or transferred.
      */
-    private static final long MIN_BYTES = 10L * 1024L;
+    private static final long MIN_BYTES = 1L;
 
     private static String skipClause() {
         StringBuilder clause = new StringBuilder();
@@ -129,7 +130,7 @@ public class FileDiscoveryPlugin extends Plugin {
     @PluginMethod
     public void isSupported(PluginCall call) {
         JSObject result = new JSObject();
-        result.put("supported", true);
+        result.put("supported", Build.VERSION.SDK_INT >= Build.VERSION_CODES.R);
         call.resolve(result);
     }
 
@@ -144,6 +145,10 @@ public class FileDiscoveryPlugin extends Plugin {
      */
     @PluginMethod
     public void requestPermission(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            call.reject("Automatic discovery requires Android 11 or newer.");
+            return;
+        }
         JSObject result = new JSObject();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -190,7 +195,8 @@ public class FileDiscoveryPlugin extends Plugin {
                 selectionArgs(maxBytes, since / 1000L),
                 null)) {
             JSObject result = new JSObject();
-            result.put("total", cursor == null ? 0 : cursor.getCount());
+            if (cursor == null) throw new IllegalStateException("Storage could not be enumerated");
+            result.put("total", cursor.getCount());
             call.resolve(result);
         } catch (Exception error) {
             call.reject("count failed: " + error.getMessage(), error);
@@ -218,11 +224,13 @@ public class FileDiscoveryPlugin extends Plugin {
 
         try (Cursor cursor = pagedQuery(collection, selection(),
                 selectionArgs(maxBytes, sinceSeconds), limit, offset)) {
+            if (cursor == null) throw new IllegalStateException("Storage could not be enumerated");
             if (cursor != null) {
                 int idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID);
                 int nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME);
                 int sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE);
                 int dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED);
+                int generationCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.GENERATION_MODIFIED);
                 int mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE);
                 int pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.RELATIVE_PATH);
 
@@ -234,6 +242,7 @@ public class FileDiscoveryPlugin extends Plugin {
                     file.put("size", cursor.getLong(sizeCol));
                     // Back to milliseconds for the TypeScript side.
                     file.put("modifiedAt", cursor.getLong(dateCol) * 1000L);
+                    file.put("revision", Long.toString(cursor.getLong(generationCol)));
                     String mime = cursor.getString(mimeCol);
                     file.put("mimeType", mime == null ? "application/octet-stream" : mime);
                     String relative = cursor.getString(pathCol);
@@ -267,7 +276,8 @@ public class FileDiscoveryPlugin extends Plugin {
     private Cursor pagedQuery(Uri collection, String selection, String[] args,
                               int limit, int offset) {
         ContentResolver resolver = getContext().getContentResolver();
-        String sort = MediaStore.Files.FileColumns.DATE_MODIFIED + " DESC";
+        String sort = MediaStore.Files.FileColumns.DATE_MODIFIED + " DESC, "
+            + MediaStore.Files.FileColumns._ID + " DESC";
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             Bundle query = new Bundle();
@@ -281,6 +291,31 @@ public class FileDiscoveryPlugin extends Plugin {
 
         return resolver.query(collection, PROJECTION, selection, args,
             sort + " LIMIT " + limit + " OFFSET " + offset);
+    }
+
+    /** Detect modifications during paged enumeration before inferring removals. */
+    @PluginMethod
+    public void stamp(PluginCall call) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            call.reject("Automatic discovery requires Android 11 or newer.");
+            return;
+        }
+        try {
+            java.util.List<String> volumes = new java.util.ArrayList<>(
+                MediaStore.getExternalVolumeNames(getContext()));
+            java.util.Collections.sort(volumes);
+            StringBuilder value = new StringBuilder();
+            for (String volume : volumes) {
+                value.append(volume).append(":")
+                    .append(MediaStore.getVersion(getContext(), volume)).append(":")
+                    .append(MediaStore.getGeneration(getContext(), volume)).append(";");
+            }
+            JSObject result = new JSObject();
+            result.put("value", value.toString());
+            call.resolve(result);
+        } catch (Exception error) {
+            call.reject("Could not verify a stable storage snapshot", error);
+        }
     }
 
     /** Bytes for one file, base64 for the bridge. Called only after filtering and dedup. */
@@ -300,6 +335,10 @@ public class FileDiscoveryPlugin extends Plugin {
             byte[] chunk = new byte[8192];
             int read;
             while ((read = input.read(chunk)) != -1) {
+                if (buffer.size() + read > 25L * 1024 * 1024) {
+                    call.reject("File exceeds 25 MB");
+                    return;
+                }
                 buffer.write(chunk, 0, read);
             }
             JSObject result = new JSObject();

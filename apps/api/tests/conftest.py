@@ -4,6 +4,8 @@ Deliberately no database here. Phase-1 tests must pass before `docker compose up
 so nothing in this file may require a live service.
 """
 
+from contextlib import suppress
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -115,7 +117,7 @@ def doubles():
 @pytest_asyncio.fixture
 async def api(app, db, doubles, test_user_id, blob_store):
     """Client with the LLM, embedder and tokenizer replaced, sharing the test's session."""
-    from memora.api.deps import current_user_id, get_db
+    from memora.api.deps import current_user_id, get_db, get_session
 
     app.dependency_overrides[uploads_router.get_embedder] = lambda: doubles["embedder"]
     app.dependency_overrides[uploads_router.get_counter] = lambda: doubles["counter"]
@@ -143,6 +145,7 @@ async def api(app, db, doubles, test_user_id, blob_store):
         yield db
 
     app.dependency_overrides[get_db] = _db
+    app.dependency_overrides[get_session] = _db
     # Must match the session var, or RLS WITH CHECK rejects every insert.
     app.dependency_overrides[current_user_id] = lambda: test_user_id
 
@@ -220,10 +223,8 @@ def _count_double_calls(request, doubles):
                 continue
             attr = getattr(double, name)
             if callable(attr):
-                try:
+                with suppress(AttributeError, TypeError):
                     setattr(double, name, counted(attr, f"{label}.{name}"))
-                except (AttributeError, TypeError):
-                    pass
     yield
 
 

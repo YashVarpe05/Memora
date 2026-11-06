@@ -1,6 +1,7 @@
 """Application settings. Config comes from the environment only — never hardcoded."""
 
 from functools import lru_cache
+from typing import Literal
 from uuid import UUID
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -33,6 +34,10 @@ class Settings(BaseSettings):
     # because a weaker extractor produces wrong filters and a wrong filter actively
     # demotes the correct answer. Changing this changes what is being measured.
     gemini_model: str = "gemini-2.5-flash"
+    embedding_provider: Literal["gemini", "lexical", "local"] = "gemini"
+    local_embedding_model: str = "intfloat/multilingual-e5-base"
+    local_embedding_revision: str = "d128750597153bb5987e10b1c3493a34e5a4502a"
+    local_embedding_threads: int = 2
     embedding_model: str = "gemini-embedding-001"
     # Pinned in DDL as vector(768). gemini-embedding-001 defaults to 3072, so this
     # is requested explicitly via output_dimensionality. Changing it needs a migration.
@@ -56,13 +61,12 @@ class Settings(BaseSettings):
     # documents, so anyone else who joins can otherwise read them. This is the difference
     # between "nothing leaves devices you own" being true and being aspirational.
     require_pairing: bool = True
-    # Which model runs stage 1. Local is the DEFAULT, not a fallback: measured at
-    # Recall@1 0.895 against a 0.842 dense baseline, with no quota, no deprecation risk,
-    # and the query never leaving the machine. See docs/PHASE3-LOCAL.md.
-    #
-    # Set STAGE1_PROVIDER=gemini to run the hosted comparison arm, which scores 0.947 -
-    # one gold row better, and unreproducible by anyone without a pre-cutoff API key.
-    stage1_provider: str = "local"
+    pairing_store: str = "data/auth/devices.sqlite3"
+    operator_secret: str | None = None
+    public_api_url: str | None = None
+    # Fast, deterministic query filters by default. Local/hosted model arms remain
+    # available for comparison through STAGE1_PROVIDER=local or gemini.
+    stage1_provider: str = "rules"
     local_stage1_model: str = "qwen2.5:3b-instruct"
     ocr_engine: str = "tesseract"
 

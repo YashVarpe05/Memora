@@ -32,6 +32,7 @@ interface FileDiscoveryNative {
     maxBytes: number;
   }): Promise<NativeScanPage>;
   count(options: { since: number; maxBytes: number }): Promise<{ total: number }>;
+  stamp(): Promise<{ value: string }>;
   read(options: { path: string }): Promise<{ data: string }>;
 }
 
@@ -66,6 +67,7 @@ export class AndroidFileDiscovery implements FileDiscovery {
   async *#paged(since: number, options?: ScanOptions): AsyncIterable<DiscoveredFile> {
     const limit = options?.limit ?? DEFAULT_SCAN.limit;
     const maxBytes = options?.maxBytes ?? DEFAULT_SCAN.maxBytes;
+    const initialStamp = (await Native.stamp()).value;
     let offset = 0;
     let yielded = 0;
 
@@ -81,7 +83,12 @@ export class AndroidFileDiscovery implements FileDiscovery {
         yielded += 1;
       }
       offset += page.files.length;
-      if (page.done || page.files.length === 0) return;
+      if (page.done || page.files.length === 0) {
+        if ((await Native.stamp()).value !== initialStamp) {
+          throw new Error('Files changed during the scan. Rescan to finish checking availability.');
+        }
+        return;
+      }
     }
   }
 

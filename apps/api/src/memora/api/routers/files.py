@@ -20,7 +20,7 @@ from memora.services.storage import BlobStore, build_blob_store
 router = APIRouter(tags=["files"])
 
 # Anything outside this is replaced before the name goes in a header.
-_UNSAFE_FILENAME = re.compile(r'[^A-Za-z0-9._ -]')
+_UNSAFE_FILENAME = re.compile(r"[^A-Za-z0-9._ -]")
 
 
 def get_blob_store() -> BlobStore:
@@ -55,7 +55,8 @@ async def get_file(
             # attachment, always. An uploaded HTML file must never render on this origin.
             "Content-Disposition": f'attachment; filename="{safe_filename(memory.filename)}"',
             "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "private, max-age=3600",
+            "Cache-Control": "private, no-store",
+            "Vary": "Authorization",
         },
     )
 
@@ -80,7 +81,8 @@ async def get_thumbnail(
         media_type="image/jpeg",
         headers={
             "X-Content-Type-Options": "nosniff",
-            "Cache-Control": "private, max-age=86400",
+            "Cache-Control": "private, no-store",
+            "Vary": "Authorization",
         },
     )
 
@@ -97,6 +99,11 @@ async def delete_memory(
     PRODUCT.md claims erasure is demonstrable. A row removed while the document survives
     on disk is not erasure, so the blob goes with it.
     """
+    from memora.repositories.index_job import IndexJobRepository
+
+    memory = await MemoryRepository(session, user_id).get(memory_id)
+    if memory:
+        await IndexJobRepository(session, user_id).delete_for_hash(memory.content_hash)
     memory = await MemoryRepository(session, user_id).delete(memory_id)
     if memory is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
@@ -105,3 +112,37 @@ async def delete_memory(
         blobs.delete(user_id, memory.content_hash)
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/memories/{memory_id}/pages/{page}")
+async def get_pdf_page(
+    memory_id: UUID, page: int, session: DbDep, user_id: CurrentUserDep, blobs: BlobStoreDep
+) -> Response:
+    import asyncio
+
+    import pymupdf
+
+    memory = await MemoryRepository(session, user_id).get(memory_id)
+    if memory is None or memory.mime_type != "application/pdf":
+        raise HTTPException(404, "PDF not found")
+    if not blobs.exists(user_id, memory.content_hash):
+        raise HTTPException(410, "The stored file is missing")
+
+    def render() -> tuple[bytes, int]:
+        with pymupdf.open(stream=blobs.read(user_id, memory.content_hash), filetype="pdf") as doc:
+            if page < 1 or page > len(doc):
+                raise HTTPException(404, "Page not found")
+            current = doc[page - 1]
+            scale = min(2.0, 1800 / max(current.rect.width, current.rect.height))
+            return current.get_pixmap(matrix=pymupdf.Matrix(scale, scale)).tobytes("png"), len(doc)
+
+    png, pages = await asyncio.to_thread(render)
+    return Response(
+        png,
+        media_type="image/png",
+        headers={
+            "X-Page-Count": str(pages),
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )

@@ -59,7 +59,9 @@ async def test_results_are_ranked_and_numbered_from_one(api, doubles):
 async def test_result_carries_what_a_card_needs(api, doubles):
     memory_id = await upload_image(api, doubles, "government of india aadhaar", "id.png")
 
-    body = (await api.post("/search", json={"query": "the scanned government aadhaar document"})).json()
+    body = (
+        await api.post("/search", json={"query": "the scanned government aadhaar document"})
+    ).json()
     top = body["results"][0]
 
     assert top["memory_id"] == memory_id
@@ -80,7 +82,9 @@ async def test_pdf_result_carries_the_page(api):
         "policy.pdf",
     )
 
-    body = (await api.post("/search", json={"query": "the pdf about reimbursement policy details"})).json()
+    body = (
+        await api.post("/search", json={"query": "the pdf about reimbursement policy details"})
+    ).json()
 
     assert body["results"], "expected a match"
     assert body["results"][0]["page"] is not None

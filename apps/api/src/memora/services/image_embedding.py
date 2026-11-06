@@ -56,5 +56,8 @@ class HttpImageEmbedder:
         return await self._call("/embed/text", json={"text": text})
 
 
-def build_image_embedder() -> ImageEmbedder:
-    return HttpImageEmbedder(get_settings().ocr_url)
+def build_image_embedder() -> ImageEmbedder | None:
+    settings = get_settings()
+    if settings.embedding_provider in ("lexical", "local"):
+        return None
+    return HttpImageEmbedder(settings.ocr_url)

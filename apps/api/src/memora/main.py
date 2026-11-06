@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from memora.api.routers import chat, device, files, health, pairing, search, uploads
+from memora.api.routers import chat, device, files, health, indexing, pairing, search, uploads
 from memora.config import get_settings
 from memora.db.session import dispose_engine
 
@@ -23,6 +23,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger = logging.getLogger("memora.config")
     for line in report(get_settings()):
         logger.warning(line)
+
+    # Local weights are downloaded explicitly by the setup command. Load and run
+    # cached weights before accepting searches, so a cold query cannot time out.
+    if get_settings().embedding_provider == "local":
+        from memora.services.embedding import build_embedder, embed_query
+        from memora.services.masking import mask_identifiers
+
+        await embed_query(build_embedder(), mask_identifiers("Search model readiness check"))
 
     yield
     await dispose_engine()
@@ -44,6 +52,7 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["X-Page-Count"],
     )
 
     app.include_router(health.router)
@@ -62,6 +71,7 @@ def create_app() -> FastAPI:
     app.include_router(files.router, dependencies=paired)
     app.include_router(search.router, dependencies=paired)
     app.include_router(device.router, dependencies=paired)
+    app.include_router(indexing.router, dependencies=paired)
     return app
 
 

@@ -24,6 +24,7 @@ class ReadinessResponse(BaseModel):
     role: str
     # Observed, not probed - checking quota would spend the quota being checked.
     query_understanding: str
+    search_mode: str = "hybrid"
     degraded_message: str | None = None
     # Which config source each measurement-critical setting came from. A pin that is
     # silently overridden looks identical to a pin that holds.
@@ -95,5 +96,10 @@ async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResp
             for o in config_origins(settings)
         },
         query_understanding=stage1.state,
-        degraded_message=describe(stage1),
+        search_mode="lexical" if settings.embedding_provider == "lexical" else "hybrid",
+        degraded_message=(
+            "Word and document-type search is enabled. Meaning-based and visual search "
+            "are disabled in this local trial."
+            if settings.embedding_provider == "lexical" else describe(stage1)
+        ),
     )

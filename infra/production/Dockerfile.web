@@ -1,0 +1,13 @@
+FROM node:22-slim AS build
+RUN npm install -g pnpm@10.26.1
+WORKDIR /srv
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY apps/web/package.json apps/web/package.json
+COPY packages/core/package.json packages/core/package.json
+RUN pnpm install --frozen-lockfile
+COPY apps/web apps/web
+COPY packages/core packages/core
+RUN pnpm -C apps/web build
+FROM caddy:2-alpine
+COPY --from=build /srv/apps/web/dist /srv/www
+COPY infra/production/Caddyfile /etc/caddy/Caddyfile

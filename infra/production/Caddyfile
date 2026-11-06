@@ -1,0 +1,14 @@
+{$MEMORA_DOMAIN} {
+    encode gzip
+    request_body {
+        max_size 26MB
+    }
+    handle_path /api/* {
+        reverse_proxy api:8000
+    }
+    handle {
+        root * /srv/www
+        try_files {path} /index.html
+        file_server
+    }
+}

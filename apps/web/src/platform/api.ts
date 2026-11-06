@@ -125,11 +125,7 @@ export async function apiFetch(path: string, init: RequestInit = {}): Promise<Re
 export async function verifyPairing(): Promise<boolean> {
   if (!pairedServer()) return false;
   try {
-    const response = await apiFetch('/api/search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query: 'ping', limit: 1, stage1: false }),
-    });
+    const response = await apiFetch('/api/device/identity');
     return response.status !== 401;
   } catch {
     // Unreachable is not unpaired. The laptop may simply be asleep, and throwing the

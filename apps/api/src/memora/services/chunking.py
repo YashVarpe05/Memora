@@ -93,53 +93,63 @@ def chunk_blocks(
     buffer: list[str] = []
     heading: str | None = None
     page: int | None = None
+    occurred_at: object | None = None
+    meta: dict | None = None
+    fresh = False
     overlap_tokens = int(TARGET_TOKENS * OVERLAP_RATIO)
 
     def flush(carry: bool) -> None:
-        nonlocal buffer, page
+        nonlocal buffer, fresh
         body = " ".join(buffer).strip()
-        if not body:
-            return
-        prefix = title if heading is None else f"{title} - {heading}"
-        chunks.append(
-            TextChunk(
-                text=body,
-                contextual_prefix=prefix[:512],
-                token_count=counter.count(body),
-                ordinal=len(chunks),
-                page=page,
+        if body and fresh:
+            chunks.append(
+                TextChunk(
+                    text=body,
+                    contextual_prefix=(title if not heading else f"{title} - {heading}")[:512],
+                    token_count=counter.count(body),
+                    ordinal=len(chunks),
+                    page=page,
+                    occurred_at=occurred_at,
+                    meta=meta,
+                )
             )
-        )
-        buffer = [_overlap_tail(body, counter, overlap_tokens)] if carry else []
-        # The next chunk starts wherever its first block is.
-        page = None
+        buffer = [_overlap_tail(body, counter, overlap_tokens)] if carry and body else []
+        fresh = False
 
     for block in blocks:
+        if block.page != page or (block.heading and heading and block.heading != heading):
+            flush(carry=False)
+        page = block.page
         if block.heading:
             heading = block.heading
-        if page is None and block.page is not None:
-            # The page a chunk starts on; later blocks may spill onto the next.
-            page = block.page
-        candidate = " ".join([*buffer, block.text]).strip()
-        if counter.count(candidate) > MAX_TOKENS and buffer:
-            flush(carry=True)
-        buffer.append(block.text)
-        if counter.count(" ".join(buffer)) >= TARGET_TOKENS:
-            flush(carry=True)
-
+        occurred_at, meta = block.occurred_at, block.meta
+        remaining = block.text.strip()
+        while remaining:
+            # Binary search a bounded text slice; unlike token-ID decoding this never
+            # cuts a Unicode code point and also works with the deterministic test counter.
+            lo, hi = 1, len(remaining)
+            while lo < hi:
+                mid = (lo + hi + 1) // 2
+                if counter.count(remaining[:mid]) <= MAX_TOKENS - overlap_tokens - 8:
+                    lo = mid
+                else:
+                    hi = mid - 1
+            end = lo
+            if end < len(remaining):
+                boundary = remaining.rfind(" ", 0, end)
+                if boundary > 0:
+                    end = boundary
+            piece, remaining = remaining[:end].strip(), remaining[end:].strip()
+            if counter.count(" ".join([*buffer, piece])) > MAX_TOKENS:
+                flush(carry=True)
+            # A very long last word can make a word-based overlap exceed its budget.
+            while buffer and counter.count(" ".join([*buffer, piece])) > MAX_TOKENS:
+                buffer.pop(0)
+            buffer.append(piece)
+            fresh = True
+            if counter.count(" ".join(buffer)) >= TARGET_TOKENS:
+                flush(carry=True)
     flush(carry=False)
-
-    # A trailing fragment below MIN_TOKENS is folded back rather than left stranded.
-    if len(chunks) > 1 and chunks[-1].token_count < MIN_TOKENS // 2:
-        tail = chunks.pop()
-        merged = f"{chunks[-1].text} {tail.text}".strip()
-        chunks[-1] = TextChunk(
-            text=merged,
-            contextual_prefix=chunks[-1].contextual_prefix,
-            token_count=counter.count(merged),
-            ordinal=chunks[-1].ordinal,
-            page=chunks[-1].page,
-        )
     return chunks
 
 

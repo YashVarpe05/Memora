@@ -5,9 +5,10 @@ import { Routes } from '@memora/core';
 
 import { AppShell } from '@/components/AppShell';
 import { PairPage } from '@/features/pairing/PairPage';
+import { IndexContext, useIndexController } from '@/features/scan/useDeviceScan';
 import { ScanPage } from '@/features/scan/ScanPage';
 import { SearchView } from '@/features/search/SearchView';
-import { isNative, onPairingLost, pairedServer, verifyPairing } from '@/platform/api';
+import { onPairingLost, pairedServer, verifyPairing } from '@/platform/api';
 import {
   AskPage,
   CapturePage,
@@ -39,18 +40,19 @@ function RequirePairing() {
   // offers no way to re-pair, and fails at whatever the user tries first. One cheap call
   // at launch settles it, and a 401 anywhere clears the pairing through apiFetch.
   useEffect(() => {
-    if (isNative() && pairedServer()) void verifyPairing();
+    if (pairedServer()) void verifyPairing();
   }, []);
 
-  if (isNative() && !pairedServer() && pathname !== Routes.Pair) {
+  if (!pairedServer() && pathname !== Routes.Pair) {
     return <Navigate to={Routes.Pair} replace />;
   }
   return <Outlet />;
 }
 
 export default function App() {
+  const indexing = useIndexController();
   return (
-    <RouterRoutes>
+    <IndexContext.Provider value={indexing}><RouterRoutes>
       <Route element={<RequirePairing />}>
         <Route element={<AppShell />}>
           {/* Search is the product: layer one, the answer is the file. */}
@@ -66,6 +68,6 @@ export default function App() {
           <Route path="*" element={<Navigate to={Routes.Search} replace />} />
         </Route>
       </Route>
-    </RouterRoutes>
+    </RouterRoutes></IndexContext.Provider>
   );
 }

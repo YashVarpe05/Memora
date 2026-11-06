@@ -9,7 +9,12 @@ from pydantic import BaseModel, Field
 
 from memora.api.deps import CurrentUserDep, DbDep, SettingsDep
 from memora.repositories.chunk import ChunkRepository
-from memora.services.embedding import Embedder, build_embedder
+from memora.services.embedding import (
+    Embedder,
+    build_embedder,
+    embed_query,
+    embedding_fingerprint,
+)
 from memora.services.generation import Generator, build_generator
 from memora.services.masking import mask_identifiers
 from memora.services.retrieval import has_weak_evidence
@@ -59,10 +64,12 @@ async def chat(
 ) -> ChatResponse:
     # The question is masked too. Someone pasting their own Aadhaar number into the
     # search box must not have it embedded by a hosted API either.
-    query_vector = (await embedder.embed([mask_identifiers(payload.question)]))[0]
+    query_vector = await embed_query(embedder, mask_identifiers(payload.question))
 
     chunks = ChunkRepository(session, user_id)
-    results = await chunks.search_dense(query_vector, settings.retrieval_top_k)
+    results = await chunks.search_dense(
+        query_vector, settings.retrieval_top_k, model_id=embedding_fingerprint(embedder)
+    )
 
     if has_weak_evidence([r.similarity for r in results]):
         # Decided before the LLM is reachable. A model asked to refuse will sometimes

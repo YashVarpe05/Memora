@@ -76,3 +76,14 @@ Thumbs.db
 **/android/local.properties
 **/android/capacitor-cordova-android-plugins/
 *.iml
+
+# Persistent device credentials (hashed) are deployment state, never source.
+**/data/auth/
+
+# Local web trial and automated-test logs/artifacts can include document previews.
+data/web-trial-logs/
+data/test-reports/
+
+# Synthetic browser-test screenshots and traces.
+apps/web/test-results/
+apps/web/playwright-report/

@@ -78,10 +78,7 @@ function Highlighted({ text, query }: { text: string; query: string }) {
  * implementation detail into the visible reason the right answer won.
  */
 function whyItWon(result: SearchResult): string {
-  const boosted = result.score - result.raw_score;
-  if (boosted > 0.001) return 'matched content and your filters';
-  if (boosted < -0.001) return 'matched content, but not your filters';
-  return 'matched on content';
+  return result.match_explanation ?? 'Matched document contents';
 }
 
 /** A title worth showing: PDFs carry real ones, images carry their own filename back. */
@@ -134,7 +131,7 @@ export function ResultCard({
           className={cn(
             'absolute -left-1 -top-1 flex size-5 items-center justify-center rounded-full',
             'text-[0.625rem] font-semibold',
-            result.rank === 1 ? 'bg-accent text-white' : 'bg-surface-sunken text-ink-faint',
+            result.rank === 1 ? 'bg-accent text-accent-ink' : 'bg-surface-sunken text-ink-faint',
           )}
           aria-label={`rank ${result.rank}`}
         >
@@ -152,13 +149,15 @@ export function ResultCard({
           screenshots taken a second apart. Leading with the useless string and truncating
           the useful one inverts the product.
         */}
+        {result.document_label && <p className="text-sm font-semibold">{result.document_label}</p>}
+        {result.uncertain && <p className="text-xs text-warn">Possible match — check the preview</p>}
         {result.snippet ? (
           <p className="line-clamp-3 text-sm leading-snug text-ink">
             <Highlighted text={result.snippet} query={query} />
           </p>
         ) : (
           <p className="text-sm italic text-ink-faint">
-            No readable text — this file can’t be found by description yet.
+            Matched by visual appearance. Open the preview to check.
           </p>
         )}
 

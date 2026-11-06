@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -19,6 +19,7 @@ EMBEDDING_DIMS = get_settings().embedding_dims
 
 class Chunk(Base):
     __tablename__ = "chunks"
+    __table_args__ = (Index("ix_chunks_owner_embedding_model", "user_id", "embedding_model"),)
 
     id: Mapped[uuid.UUID] = mapped_column(
         PgUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -46,4 +47,8 @@ class Chunk(Base):
     contextual_prefix: Mapped[str] = mapped_column(String(512), nullable=False, default="")
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIMS), nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMS), nullable=True)
+
+    # A vector's dimensions do not identify its coordinate space. NULL is legacy
+    # provenance, never assumed to be compatible with a configured production model.
+    embedding_model: Mapped[str | None] = mapped_column(String(512), nullable=True)

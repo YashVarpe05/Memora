@@ -126,18 +126,13 @@ async def extract_pdf_via_ocr(
     with pymupdf.open(stream=data, filetype="pdf") as doc:
         title = (doc.metadata or {}).get("title") or Path(filename).stem
         # 200 dpi: enough for body text, without making the OCR call enormous.
-        pages = [
-            page.get_pixmap(dpi=200).tobytes("png")
-            for page in list(doc)[:max_pages]
-        ]
+        pages = [page.get_pixmap(dpi=200).tobytes("png") for page in list(doc)[:max_pages]]
 
     blocks: list[Block] = []
     for number, png in enumerate(pages, start=1):
         text = await ocr.read(png, f"{filename}#page{number}")
         blocks.extend(
-            Block(text=line.strip(), page=number)
-            for line in text.splitlines()
-            if line.strip()
+            Block(text=line.strip(), page=number) for line in text.splitlines() if line.strip()
         )
 
     return str(title).strip()[:512] or "Untitled", blocks
@@ -197,8 +192,7 @@ def extract_email(data: bytes, filename: str) -> Extracted:
     return Extracted(
         title=parsed.subject,
         blocks=[
-            Block(text=paragraph.strip(), heading=parsed.subject[:120],
-                  occurred_at=parsed.sent_at)
+            Block(text=paragraph.strip(), heading=parsed.subject[:120], occurred_at=parsed.sent_at)
             for paragraph in body.split("\n\n")
             if paragraph.strip()
         ],
@@ -231,4 +225,104 @@ def extract_chat(data: bytes, filename: str) -> Extracted:
         source_type="chat",
         per_block=True,
         occurred_at=min(starts) if starts else None,
+    )
+
+
+class DocumentError(ValueError):
+    """An actionable, permanent extraction failure."""
+
+
+async def extract_pdf(data: bytes, ocr: OcrClient, filename: str) -> tuple[str, list[Block]]:
+    """Read every page; OCR pages containing scans even in mixed-content PDFs."""
+    import asyncio
+
+    import pymupdf
+
+    try:
+        with pymupdf.open(stream=data, filetype="pdf") as doc:
+            if doc.needs_pass:
+                raise DocumentError("Password-protected PDF. Save an unlocked copy to index it.")
+            if len(doc) > 500:
+                raise DocumentError("PDF exceeds 500 pages. Split it into smaller documents.")
+            title = (doc.metadata or {}).get("title") or Path(filename).stem
+            blocks: list[Block] = []
+            for number, page in enumerate(doc, 1):
+                text = page.get_text().strip()
+                if not text or page.get_images():
+                    png = await asyncio.to_thread(
+                        lambda p=page: p.get_pixmap(
+                            matrix=pymupdf.Matrix(
+                                min(200 / 72, 2400 / max(p.rect.width, p.rect.height)),
+                                min(200 / 72, 2400 / max(p.rect.width, p.rect.height)),
+                            )
+                        ).tobytes("png")
+                    )
+                    scanned = await ocr.read(png, f"{filename}#page{number}")
+                    # OCR the rendered page, which includes the text layer. Preserve native
+                    # text as well when OCR misses it, without duplicating identical lines.
+                    text = "\n".join(dict.fromkeys((text + "\n" + scanned).splitlines()))
+                blocks.extend(
+                    Block(text=line.strip(), page=number)
+                    for line in text.splitlines()
+                    if line.strip()
+                )
+            return str(title)[:512], blocks
+    except (pymupdf.FileDataError, RuntimeError) as exc:
+        raise DocumentError("This PDF is damaged or cannot be read.") from exc
+
+
+def extract_office_or_text(data: bytes, filename: str) -> Extracted:
+    import io
+    import subprocess
+    import tempfile
+    import zipfile
+    from xml.etree import ElementTree
+
+    suffix = Path(filename).suffix.lower()
+    if suffix == ".docx":
+        try:
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                info = archive.getinfo("word/document.xml")
+                if info.file_size > 20 * 1024 * 1024:
+                    raise DocumentError("Word document expands beyond the extraction limit.")
+                xml = archive.read(info)
+                if b"<!DOCTYPE" in xml or b"<!ENTITY" in xml:
+                    raise DocumentError("Unsupported Word XML declarations.")
+                root = ElementTree.fromstring(xml)
+                ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+                text = "\n".join("".join(p.itertext()) for p in root.findall(".//w:p", ns))
+        except (zipfile.BadZipFile, KeyError, ElementTree.ParseError) as exc:
+            raise DocumentError(
+                "Unreadable or encrypted Word document. Save an unlocked copy."
+            ) from exc
+    elif suffix == ".doc":
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".doc") as source:
+                source.write(data)
+                source.flush()
+                result = subprocess.run(["antiword", source.name], capture_output=True, timeout=30)
+            if result.returncode:
+                raise DocumentError("Unreadable or encrypted Word document. Save as DOCX or PDF.")
+            text = result.stdout.decode("utf-8", errors="replace")
+        except FileNotFoundError as exc:
+            raise DocumentError(
+                "Legacy Word reader unavailable. Save this file as DOCX or PDF."
+            ) from exc
+        except subprocess.TimeoutExpired as exc:
+            raise DocumentError(
+                "Word extraction timed out. Save this file as DOCX or PDF."
+            ) from exc
+    elif suffix in (".txt", ".md"):
+        try:
+            text = data.decode("utf-16" if data[:2] in (b"\xff\xfe", b"\xfe\xff") else "utf-8-sig")
+        except UnicodeError as exc:
+            raise DocumentError("Text encoding is unsupported. Save this file as UTF-8.") from exc
+        if "\x00" in text:
+            raise DocumentError("This file contains binary data, not readable text.")
+    else:
+        raise DocumentError("Unsupported file. Choose PDF, image, TXT, Markdown, DOC or DOCX.")
+    return Extracted(
+        title=Path(filename).stem[:512],
+        blocks=[Block(text=line.strip()) for line in text.splitlines() if line.strip()],
+        source_type="document" if suffix in (".doc", ".docx") else "note",
     )

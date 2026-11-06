@@ -1,4 +1,4 @@
-import { Camera, Laptop } from 'lucide-react';
+import { Camera } from 'lucide-react';
 import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -73,6 +73,12 @@ async function serverAnswers(url: string): Promise<boolean> {
 export async function claim(payload: PairingPayload): Promise<ClaimResult> {
   let response: Response;
   try {
+    const address = new URL(payload.url);
+    if (address.protocol !== 'https:' || address.username || address.password) {
+      if (!['localhost', '127.0.0.1'].includes(address.hostname) || address.protocol !== 'http:') {
+        return { ok: false, failure: { kind: 'blocked' } };
+      }
+    }
     response = await fetch(`${payload.url}/pair/claim`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -169,19 +175,10 @@ export function PairScanScreen({ onPaired }: { onPaired: () => void }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5 px-4 py-8">
       <div className="flex flex-col gap-2">
-        <h1 className="text-xl font-semibold tracking-tight">Connect to your computer</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Scan a server invitation</h1>
         <p className="text-sm text-ink-muted">
-          Memora searches documents held on your own computer. Open Memora there, and scan
-          the code it shows.
+          Scan the invitation QR code supplied by your Memora server operator.
         </p>
-      </div>
-
-      <div className="flex items-start gap-3 rounded-card border border-line bg-surface p-3">
-        <Laptop className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
-        <span className="text-sm leading-relaxed text-ink-muted">
-          Both devices need to be on the same network. The simplest way is to turn on this
-          phone's hotspot and connect the computer to it.
-        </span>
       </div>
 
       {error && <p className="text-sm text-warn">{error}</p>}

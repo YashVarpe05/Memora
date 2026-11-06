@@ -1,6 +1,7 @@
-import { Camera, Clock, FolderSearch, MessageCircleQuestion, Search, Settings } from 'lucide-react';
+import { Camera, FolderSearch, Search, Settings } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { SearchStatus } from '@/components/SearchStatus';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 
 import { Routes } from '@memora/core';
 
@@ -8,10 +9,7 @@ import { cn } from '@/lib/utils';
 
 const TABS = [
   { to: Routes.Search, label: 'Find', Icon: Search },
-  { to: Routes.Ask, label: 'Ask', Icon: MessageCircleQuestion },
-  { to: Routes.Capture, label: 'Capture', Icon: Camera },
   { to: Routes.Scan, label: 'Index', Icon: FolderSearch },
-  { to: Routes.Timeline, label: 'Timeline', Icon: Clock },
   { to: Routes.Settings, label: 'Settings', Icon: Settings },
 ] as const;
 
@@ -39,6 +37,9 @@ function Tab({ to, label, Icon }: { to: string; label: string; Icon: typeof Came
  * and moves into the header from sm up, where capture stops being the primary action.
  */
 export function AppShell({ children }: { children?: ReactNode }) {
+  const { pathname } = useLocation();
+  return () => controller.abort();
+  }, [pathname]);
   return (
     <div className="flex h-full flex-col bg-canvas">
       <header
@@ -50,7 +51,7 @@ export function AppShell({ children }: { children?: ReactNode }) {
         <div className="flex h-14 items-center gap-2">
           <span className="text-base font-semibold tracking-tight">Memora</span>
           <span className="hidden text-xs text-ink-faint sm:inline">
-            layer one &middot; live
+            your device’s documents
           </span>
         </div>
         <nav className="hidden items-center gap-1 sm:flex">
@@ -60,7 +61,10 @@ export function AppShell({ children }: { children?: ReactNode }) {
         </nav>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto">{children ?? <Outlet />}</main>
+      <main className="min-h-0 flex-1 overflow-y-auto">
+        <SearchStatus route={pathname} />
+        {children ?? <Outlet />}
+      </main>
 
       <nav
         className={cn(

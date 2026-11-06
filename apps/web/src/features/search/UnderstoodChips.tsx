@@ -32,7 +32,7 @@ function chipsFrom(filters: Record<string, unknown> | null): string[] {
   if (!filters) return [];
   const out: string[] = [];
   for (const [key, value] of Object.entries(filters)) {
-    if (key === 'semantic_query' || key === 'needs_time_resolution') continue;
+    if (key === 'provider' || key === 'semantic_query' || key === 'needs_time_resolution') continue;
     if (value === null || value === undefined || value === '') continue;
     if (Array.isArray(value)) {
       if (!value.length) continue;

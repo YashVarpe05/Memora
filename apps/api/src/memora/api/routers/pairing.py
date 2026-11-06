@@ -11,13 +11,15 @@ The QR flow:
 
 from __future__ import annotations
 
+import secrets
 import socket
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
-from memora.api.deps import SettingsDep
+from memora.api.deps import SettingsDep, current_user_id
 from memora.services.pairing import PairingStore, store
 
 router = APIRouter(tags=["pairing"])
@@ -81,11 +83,11 @@ async def require_paired_device(
     Everything else needs the token. On a phone hotspot the API is reachable by anyone
     who joined, and it serves the owner's identity documents.
     """
-    if not settings.require_pairing:
+    if not settings.require_pairing and not settings.is_production:
         return
 
     client = request.client.host if request.client else ""
-    if client in ("127.0.0.1", "::1", "localhost"):
+    if not settings.is_production and client in ("127.0.0.1", "::1", "localhost"):
         return
 
     header = request.headers.get("authorization", "")
@@ -113,9 +115,15 @@ async def require_local_operator(request: Request, settings: SettingsDep) -> Non
     and expires in five minutes, and with `/pair/start` closed an attacker cannot mint one
     to claim - only guess.
     """
-    if not settings.require_pairing:
+    if not settings.require_pairing and not settings.is_production:
         return
 
+    if settings.operator_secret and secrets.compare_digest(
+        request.headers.get("x-memora-operator", ""), settings.operator_secret
+    ):
+        return
+    if settings.is_production:
+        raise HTTPException(403, "An operator credential is required.")
     client = request.client.host if request.client else ""
     if client not in ("127.0.0.1", "::1", "localhost"):
         raise HTTPException(
@@ -134,7 +142,7 @@ async def start_pairing(settings: SettingsDep, pairings: StoreDep) -> PairingSta
     pairing = pairings.start()
     return PairingStart(
         code=pairing.code,
-        url=lan_address(settings.api_port),
+        url=settings.public_api_url or lan_address(settings.api_port),
         expires_at=pairing.expires_at.isoformat(timespec="seconds"),
     )
 
@@ -165,3 +173,8 @@ async def revoke_pairings(settings: SettingsDep, pairings: StoreDep) -> PairingS
     owner's devices - which would be a denial of service against the demo."""
     pairings.revoke_all()
     return PairingStatus(devices_paired=0, pairing_required=settings.require_pairing)
+
+
+@router.get("/device/identity", dependencies=[Depends(require_paired_device)])
+async def device_identity(user_id: Annotated[UUID, Depends(current_user_id)]) -> dict[str, str]:
+    return {"device_id": str(user_id)}

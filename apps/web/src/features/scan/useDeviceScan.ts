@@ -1,346 +1,201 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-
-import type { DiscoveredFile, PermissionState } from '@memora/core';
-
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import type { DiscoveredFile, FileDiscovery } from '@memora/core';
+import type { components } from '@memora/core/types/api';
 import { AndroidFileDiscovery } from '@/platform/discovery.native';
-import { apiFetch, clearPairing } from '@/platform/api';
+import { BrowserFileDiscovery } from '@/platform/discovery.browser';
+import { apiFetch, isNative, pairedServer } from '@/platform/api';
+import { readState, writeState } from '@/platform/indexStore';
 
-/**
- * Scanning the phone for documents it already holds, and sending them to the laptop.
- *
- * This is the capability the whole native shell exists for. Everything else in the app
- * runs in a browser; a browser cannot enumerate a gallery.
- */
-
-/** Highest `modifiedAt` sent to the laptop, so a rescan is not a full rescan. */
-const MARKER_KEY = 'memora.scan_marker';
-
-/**
- * How many uploads are in flight at once.
- *
- * Not higher: the laptop OCRs and embeds each file as it arrives, so the server is the
- * bottleneck and a deeper queue only moves the waiting from the phone to the socket. Not
- * one: a single file in flight leaves the network idle during every extraction.
- */
-const CONCURRENCY = 3;
-
+type Job = components['schemas']['JobResponse'];
+type Jobs = components['schemas']['JobsResponse'];
+type SavedFile = { fingerprint: string; job: string };
 export type ScanMode = 'quick' | 'full';
 
-export type ScanPhase =
-  | 'idle'
-  | 'consent'
-  | 'permission'
-  | 'choosing'
-  | 'scanning'
-  | 'done'
-  | 'error';
-
-export interface ScanProgress {
-  /** Candidates the device reported. The denominator, so progress is a count. */
-  total: number;
-  seen: number;
-  uploaded: number;
-  /** Already in the corpus - the server deduplicated by content hash. */
-  duplicate: number;
-  failed: number;
-  currentName: string | null;
-  elapsedMs: number;
-}
-
-const EMPTY: ScanProgress = {
-  total: 0,
-  seen: 0,
-  uploaded: 0,
-  duplicate: 0,
-  failed: 0,
-  currentName: null,
-  elapsedMs: 0,
-};
-
-function readMarker(): number {
-  try {
-    return Number(localStorage.getItem(MARKER_KEY) ?? 0) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function writeMarker(value: number): void {
-  try {
-    localStorage.setItem(MARKER_KEY, String(value));
-  } catch {
-    // Storage blocked. The next scan re-reads files it has already sent, which the
-    // server deduplicates - slower, not wrong.
-  }
-}
-
-type UploadOutcome = 'uploaded' | 'duplicate' | 'failed' | 'unauthorized';
-
-/** One file, read and posted. Returns what happened so the counters stay honest. */
-async function upload(
-  discovery: AndroidFileDiscovery,
-  file: DiscoveredFile,
-): Promise<UploadOutcome> {
-  try {
-    const bytes = await discovery.read(file.path);
-    const form = new FormData();
-    form.append('file', new Blob([bytes as BlobPart], { type: file.mimeType }), file.name);
-    // Identity for reconciliation. The content hash identifies the bytes; this identifies
-    // the place on the device, which is what "is it still there?" asks about.
-    form.append('device_path', file.path);
-
-    const response = await apiFetch('/api/uploads', { method: 'POST', body: form });
-    // 401 is not a bad file, it is a dead pairing, and lumping the two together hid a
-    // total lockout behind a plausible number. The API restarted, its in-memory pairing
-    // store emptied, and the scan cheerfully reported "326 skipped" while every single
-    // upload was being refused. A per-file failure and a broken connection must never
-    // land in the same counter.
-    if (response.status === 401) return 'unauthorized';
-    if (!response.ok) return 'failed';
-
-    // The upload route returns the existing memory when the hash already matched, so a
-    // rescan costs a transfer but never a second copy. Distinguished here only to keep
-    // the count meaningful - "412 uploaded" when 400 were already known would be a lie.
-    const body = (await response.json()) as { chunks?: number; deduplicated?: boolean };
-    return body.deduplicated ? 'duplicate' : 'uploaded';
-  } catch {
-    // One unreadable or oversized file must not end a scan of thousands.
-    return 'failed';
-  }
-}
-
-export function useDeviceScan() {
-  const [phase, setPhase] = useState<ScanPhase>('idle');
-  const [permission, setPermission] = useState<PermissionState>('prompt');
-  const [progress, setProgress] = useState<ScanProgress>(EMPTY);
+export function useIndexController() {
+  const discovery = useRef<FileDiscovery>(isNative() ? new AndroidFileDiscovery() : new BrowserFileDiscovery());
+  const [phase, setPhase] = useState('idle');
   const [error, setError] = useState<string | null>(null);
-  const cancelled = useRef(false);
-  const discovery = useRef(new AndroidFileDiscovery());
+  const [progress, setProgress] = useState({ seen: 0, queued: 0, known: 0, failed: 0 });
+  const [issues, setIssues] = useState<string[]>([]);
+  const [jobsOffset, setJobsOffset] = useState(0);
+  const [jobs, setJobs] = useState<Jobs>({ jobs: [], counts: {} });
+  const active = useRef(false);
+  const choosing = useRef(false);
+  const stop = useRef(false);
+  const consentKey = () => `memora.online-consent:${pairedServer()?.url}:${pairedServer()?.token.slice(0, 16)}`;
+  const consented = () => localStorage.getItem(consentKey()) === 'yes';
 
-  /**
-   * Re-read the permission, and never let a bridge failure look like a denial.
-   *
-   * The rejection this catch exists for was silent for an entire debugging session. The
-   * native plugin was not registered, so every call rejected with "not implemented"; the
-   * caller discarded the rejection with `void`, the screen stayed on "waiting for file
-   * access", and the visible symptom accused Android's permission model of a fault that
-   * was six lines of missing Java. A plugin that is absent and a permission that is
-   * refused are different problems and must not produce the same screen.
-   */
-  const recheckPermission = useCallback(async () => {
+  async function refreshJobs() {
+    const connection = pairedServer();
+    if (!connection) return;
     try {
-      const state = await discovery.current.checkPermission();
-      setPermission(state);
-      if (state === 'granted') setPhase('choosing');
-      return state;
-    } catch (err) {
-      setError(
-        `The app cannot reach its file-scanning plugin: ${
-          err instanceof Error ? err.message : 'unknown error'
-        }`,
-      );
-      setPhase('error');
-      return 'denied' as PermissionState;
-    }
-  }, []);
+      const response = await apiFetch(`/api/index/jobs?offset=${jobsOffset}&limit=100`);
+      if (response.ok) {
+        const next = await response.json() as Jobs;
+        const current = pairedServer();
+        if (current?.url === connection.url && current?.token === connection.token) setJobs(next);
+      }
+    } catch { /* A network interruption leaves the last known progress visible. */ }
+  }
 
-  /**
-   * MANAGE_EXTERNAL_STORAGE is granted on a full-screen Settings page with NO result
-   * callback — the app is simply resumed — so the grant has to be discovered rather than
-   * delivered.
-   *
-   * **This polls rather than listening, because listening did not work.** The first
-   * version hung on `visibilitychange`, which a Capacitor WebView does not reliably fire
-   * when another Android activity comes and goes. Observed on device: the permission was
-   * granted in Settings, `appops` confirmed `allow`, and this screen sat on "waiting"
-   * indefinitely — precisely the failure the plan predicted, arriving through the event
-   * that was supposed to prevent it.
-   *
-   * A poll cannot miss an event that never fires. It runs only while this one screen is
-   * open, costs a single AppOps lookup per tick, and stops the moment the phase changes.
-   * The visibility listener is kept as the fast path when it does fire.
-   */
-  useEffect(() => {
-    if (phase !== 'permission') return;
+  useEffect(() => { void refreshJobs(); }, [jobsOffset]);
 
-    let stopped = false;
-    const check = () => {
-      if (stopped) return;
-      void recheckPermission();
+  async function start(_mode: ScanMode = 'full') {
+    if (active.current || !pairedServer() || !consented()) return;
+    active.current = true;
+    stop.current = false;
+    setError(null); setIssues([]); setPhase('scanning');
+    setProgress({ seen: 0, queued: 0, known: 0, failed: 0 });
+    const connection = pairedServer();
+    const sameConnection = () => {
+      const current = pairedServer();
+      return current?.token === connection?.token && current?.url === connection?.url;
     };
-
-    const timer = setInterval(check, 1500);
-    document.addEventListener('visibilitychange', check);
-    window.addEventListener('focus', check);
-    check();
-
-    return () => {
-      stopped = true;
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', check);
-      window.removeEventListener('focus', check);
-    };
-  }, [phase, recheckPermission]);
-
-  const requestPermission = useCallback(async () => {
-    setPhase('permission');
+    const paths: string[] = [];
+    let failed = false;
     try {
-      const state = await discovery.current.requestPermission();
-      setPermission(state);
-      if (state === 'granted') setPhase('choosing');
+      const identity = await apiFetch('/api/device/identity');
+      if (!identity.ok) throw new Error('Reconnect this device before indexing.');
+      const { device_id } = await identity.json() as { device_id: string };
+      const key = `files:${pairedServer()!.url}:${device_id}`;
+      const known = await readState<Record<string, SavedFile>>(key) ?? {};
+      // Enumerate metadata each time. Timestamp watermarks can permanently lose failed
+      // files, backdated copies, or files modified within the same timestamp second.
+      for await (const file of discovery.current.scan({ limit: Number.MAX_SAFE_INTEGER })) {
+        if (!sameConnection()) throw new Error('Connection changed. Reconnect and rescan to continue.');
+        if (stop.current) break;
+        paths.push(file.path);
+        const fingerprint = `${file.size}:${file.revision ?? file.modifiedAt}`;
+        setProgress(p => ({ ...p, seen: p.seen + 1 }));
+        if (known[file.path]?.fingerprint === fingerprint) {
+          setProgress(p => ({ ...p, known: p.known + 1 }));
+          continue;
+        }
+        try {
+          const problem = unsupported(file);
+          if (problem) throw new Error(problem);
+          const bytes = await discovery.current.read(file.path);
+          if (!sameConnection()) throw new Error('Connection changed. Reconnect and rescan to continue.');
+          if (stop.current) break;
+          const form = new FormData();
+          form.append('file', new Blob([bytes as BlobPart], { type: file.mimeType }), file.name);
+          form.append('device_path', file.path);
+          const response = await apiFetch('/api/index/jobs', { method: 'POST', body: form });
+          if (response.status === 401) throw new Error('Device connection expired. Reconnect to continue.');
+          if (!response.ok) {
+            const body = await response.json() as { detail?: string };
+            throw new Error(body.detail ?? `Upload failed (${response.status}).`);
+          }
+          const job = await response.json() as Job;
+          known[file.path] = { fingerprint, job: job.id };
+          // Only acknowledge after the server durably accepts the bytes and job.
+          await writeState(key, known);
+          setProgress(p => ({ ...p, queued: p.queued + 1 }));
+        } catch (err) {
+          failed = true;
+          setProgress(p => ({ ...p, failed: p.failed + 1 }));
+          setIssues(p => [...p.slice(-49), `${file.name}: ${err instanceof Error ? err.message : 'Could not read this file.'}`]);
+          if (!pairedServer()) throw err;
+        }
+      }
+      if (!sameConnection()) throw new Error('Connection changed. Reconnect and rescan to continue.');
+      if (!stop.current) {
+        const browser = discovery.current instanceof BrowserFileDiscovery ? discovery.current : null;
+        const prefixes = browser ? browser.pathPrefixes : [null];
+        for (const prefix of prefixes) {
+          const response = await apiFetch('/api/device/reconcile', { method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paths: prefix ? paths.filter(p => p.startsWith(prefix)) : paths,
+              complete: !browser?.fallback, path_prefix: prefix }) });
+          if (!response.ok) throw new Error('File availability could not be updated. Rescan to retry.');
+          if (!browser?.fallback) {
+            for (const path of Object.keys(known)) {
+              if ((!prefix || path.startsWith(prefix)) && !paths.includes(path)) delete known[path];
+            }
+          }
+        }
+        await writeState(key, known);
+      }
+      setPhase(stop.current ? 'paused' : failed ? 'attention' : 'done');
+      await refreshJobs();
     } catch (err) {
-      // Same reason as above: say the plugin is missing rather than implying the user
-      // refused something they were never asked for.
-      setError(
-        `The app cannot reach its file-scanning plugin: ${
-          err instanceof Error ? err.message : 'unknown error'
-        }`,
-      );
+      setError(err instanceof Error ? err.message : 'Indexing interrupted. Rescan to continue.');
       setPhase('error');
-    }
-  }, []);
+    } finally { active.current = false; }
+  }
 
-  const start = useCallback(async (mode: ScanMode) => {
-    cancelled.current = false;
+  async function choose() {
+    if (active.current || choosing.current) return;
+    choosing.current = true;
     setError(null);
-    setPhase('scanning');
-
-    const startedAt = performance.now();
-    // Quick start is the default and is deliberately partial: a phone holds thousands of
-    // files and indexing all of them is hours of OCR. Useful in a minute beats complete
-    // in two hours, and a full scan is one tap away.
-    const limit = mode === 'quick' ? 500 : Number.MAX_SAFE_INTEGER;
-    const marker = mode === 'quick' ? readMarker() : 0;
-
-    let total = 0;
     try {
-      // Same `since` the iteration will use, or the denominator describes a
-      // different scan from the one running.
-      total = await discovery.current.count({ since: marker });
-    } catch {
-      // A missing denominator degrades progress to a bare count. It does not stop a scan.
-      total = 0;
-    }
-    setProgress({ ...EMPTY, total: mode === 'quick' ? Math.min(total, limit) : total });
-
-    const seenPaths: string[] = [];
-    let highest = marker;
-    const inFlight = new Set<Promise<void>>();
-    let seen = 0;
-
-    let lockedOut = false;
-
-    const track = (result: UploadOutcome, name: string) => {
-      if (result === 'unauthorized') {
-        lockedOut = true;
-        cancelled.current = true;
-        return;
-      }
-      // No bare return on its own line here. Automatic semicolon insertion ends the
-      // statement at the line break, so a return followed by setProgress on the next line
-      // becomes "return;" plus unreachable code. That is exactly what happened: every
-      // upload came back 201 while the screen showed "0 indexed" and 0s elapsed.
-      // TypeScript compiles it without complaint; only the running app disagrees.
-      setProgress((p) => ({
-        ...p,
-        seen: p.seen + 1,
-        uploaded: p.uploaded + (result === 'uploaded' ? 1 : 0),
-        duplicate: p.duplicate + (result === 'duplicate' ? 1 : 0),
-        failed: p.failed + (result === 'failed' ? 1 : 0),
-        currentName: name,
-        elapsedMs: performance.now() - startedAt,
-      }));
-    };
-
-    try {
-      const source =
-        marker > 0
-          ? discovery.current.since(marker, { limit })
-          : discovery.current.scan({ limit });
-
-      for await (const file of source) {
-        if (cancelled.current) break;
-        seen += 1;
-        if (seen > limit) break;
-
-        seenPaths.push(file.path);
-        highest = Math.max(highest, file.modifiedAt);
-
-        // A job removes itself when it settles, so `inFlight.size` is the true depth and
-        // Promise.race blocks only until a slot actually frees.
-        const job: Promise<void> = upload(discovery.current, file)
-          .then((result) => track(result, file.name))
-          .finally(() => inFlight.delete(job));
-        inFlight.add(job);
-        if (inFlight.size >= CONCURRENCY) await Promise.race(inFlight);
-      }
-      await Promise.all(inFlight);
-
-      if (lockedOut) {
-        // The token is gone, so nothing was indexed and nothing can be reconciled.
-        // Dropping the stored pairing sends the app back to the QR screen by itself.
-        clearPairing();
-        setError(
-          'Your computer no longer recognises this phone - it has probably been ' +
-            'restarted. Nothing was indexed. Scan the QR code again to reconnect.',
-        );
-        setPhase('error');
-        return;
-      }
-
-      // THE MARKER MAY ONLY ADVANCE IF ENUMERATION RAN OUT.
-      //
-      // Files arrive newest-first, so `highest` is taken from the FIRST one seen. A
-      // scan stopped after a single file would therefore record the newest timestamp
-      // on the device, and every later quick scan would ask for files newer than that
-      // and find none - silently stranding everything older, with nothing on screen
-      // saying so. A quick scan that fills its 500 of 3,851 does the same thing
-      // without anyone cancelling anything.
-      //
-      // `seen < limit` means the source ended before the cap, so everything matching
-      // was covered and the high-water mark describes a real boundary. A full scan
-      // has no meaningful cap and satisfies this whenever it is not cancelled.
-      //
-      // Same rule as reconciliation, for the same reason: a partial pass cannot make
-      // a claim about what it did not look at.
-      const enumerationExhausted = seen < limit;
-      if (highest > 0 && enumerationExhausted && !cancelled.current) {
-        writeMarker(highest);
-      }
-
-      // Only a full, uncancelled scan can prove a file is gone. A quick scan sends its
-      // paths too, but with complete=false the server explicitly does nothing with them -
-      // reading absence from a 500-file page would mark most of the corpus removed.
-      await apiFetch('/api/device/reconcile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          paths: seenPaths,
-          complete: mode === 'full' && !cancelled.current,
-        }),
-      }).catch(() => undefined);
-
-      setProgress((p) => ({ ...p, currentName: null, elapsedMs: performance.now() - startedAt }));
-      setPhase('done');
+      localStorage.setItem(consentKey(), 'yes');
+      const permission = await discovery.current.requestPermission();
+      if (permission === 'granted') await start();
+      else setPhase('permission');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'The scan stopped unexpectedly.');
+      setError(err instanceof Error ? err.message : 'Folder permission was not granted.');
       setPhase('error');
-    }
+    } finally { choosing.current = false; }
+  }
+
+  async function retry(id: string) {
+    const response = await apiFetch(`/api/index/jobs/${id}/retry`, { method: 'POST' });
+    if (!response.ok) setError('Could not retry. Check your connection.');
+    await refreshJobs();
+  }
+
+  // Controller lives above the routes: opening Search does not stop a scan. Resume and
+  // periodically discover while the application is open; never claim OS background work.
+  const latest = useRef({ start, refreshJobs });
+  latest.current = { start, refreshJobs };
+  useEffect(() => {
+    stop.current = false;
+    const resume = async () => {
+      if (!pairedServer() || !consented() || active.current || choosing.current || stop.current || document.hidden) return;
+      if (discovery.current instanceof BrowserFileDiscovery) {
+        if (!await discovery.current.restore()) return;
+      } else if (await (discovery.current as AndroidFileDiscovery).checkPermission() !== 'granted') return;
+      await latest.current.start();
+    };
+    const refresh = () => { void latest.current.refreshJobs(); };
+    const scan = () => { void resume().catch(() => undefined); };
+    const jobsTimer = setInterval(refresh, 3000);
+    const scanTimer = setInterval(scan, 60000);
+    document.addEventListener('visibilitychange', scan);
+    window.addEventListener('focus', scan);
+    scan(); refresh();
+    return () => {
+      clearInterval(jobsTimer); clearInterval(scanTimer); stop.current = true;
+      document.removeEventListener('visibilitychange', scan);
+      window.removeEventListener('focus', scan);
+    };
   }, []);
 
-  const cancel = useCallback(() => {
-    cancelled.current = true;
-  }, []);
+  useEffect(() => {
+    if (phase !== 'permission' || !isNative()) return;
+    const timer = setInterval(() => {
+      void (discovery.current as AndroidFileDiscovery).checkPermission().then(p => {
+        if (p === 'granted') void latest.current.start();
+      }).catch(() => setError('Could not check Android storage permission.'));
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [phase]);
 
-  return {
-    phase,
-    setPhase,
-    permission,
-    progress,
-    error,
-    requestPermission,
-    recheckPermission,
-    start,
-    cancel,
-  };
+  return { phase, progress, issues, error, jobs, jobsOffset, setJobsOffset, choose, start, retry,
+    cancel: () => { stop.current = true; },
+    disable: () => { stop.current = true; localStorage.removeItem(consentKey()); setPhase('paused'); } };
+}
+
+function unsupported(file: DiscoveredFile): string | null {
+  if (file.size > 25 * 1024 * 1024) return 'Larger than 25 MB. Split or compress this file.';
+  if (!/\.(pdf|png|jpe?g|webp|gif|bmp|txt|md|docx?|eml|ics)$/i.test(file.name)) return 'Unsupported format.';
+  return null;
+}
+
+export const IndexContext = createContext<ReturnType<typeof useIndexController> | null>(null);
+export function useDeviceScan() {
+  const controller = useContext(IndexContext);
+  if (!controller) throw new Error('Index controller is missing.');
+  return controller;
 }

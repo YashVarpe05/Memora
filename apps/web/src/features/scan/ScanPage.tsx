@@ -1,255 +1,51 @@
-import { CheckCircle2, FolderSearch, Loader2, RefreshCw, Rocket, ShieldAlert } from 'lucide-react';
-import { useState } from 'react';
-
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
-import { ConsentScreen } from '@/features/pairing/ConsentScreen';
-import { cn } from '@/lib/utils';
-import { isNative, pairedServer } from '@/platform/api';
+import { isNative } from '@/platform/api';
+import { useDeviceScan } from './useDeviceScan';
 
-import { useDeviceScan, type ScanMode } from './useDeviceScan';
-
-/**
- * Indexing the documents already on this phone.
- *
- * The order is deliberate: explain, then ask. `ConsentScreen` comes first because the app
- * is about to read the user's whole gallery and send it to another machine, and a
- * permission dialog with no context is denied — Android does not ask twice.
- *
- * That screen was written, marked do-not-cut, and then referenced by nothing at all. It
- * was as absent as if it had never been built. This is where it is actually reachable.
- */
 export function ScanPage() {
-  const paired = pairedServer();
   const scan = useDeviceScan();
-  const [mode, setMode] = useState<ScanMode>('quick');
-
-  if (!isNative()) {
-    return (
-      <Panel>
-        <h1 className="text-xl font-semibold tracking-tight">Not available in a browser</h1>
-        <p className="text-sm text-ink-muted">
-          A browser cannot list the files on your device — there is no web API for it, by
-          design. Open Memora on your phone to index what is already there.
-        </p>
-      </Panel>
-    );
-  }
-
-  if (!paired) {
-    return (
-      <Panel>
-        <h1 className="text-xl font-semibold tracking-tight">Connect your computer first</h1>
-        <p className="text-sm text-ink-muted">
-          Files found here are sent to your own computer to be indexed. Pair with it before
-          scanning.
-        </p>
-      </Panel>
-    );
-  }
-
-  if (scan.phase === 'idle') {
-    return (
-      <Panel>
-        <div className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">Index this phone</h1>
-          <p className="text-sm text-ink-muted">
-            Memora can look through the documents already on this phone — screenshots,
-            PDFs, photos of paperwork — so you can find them by describing them.
-          </p>
-        </div>
-        <Button className="min-h-12" onClick={() => scan.setPhase('consent')}>
-          <FolderSearch className="size-4" aria-hidden /> Get started
-        </Button>
-      </Panel>
-    );
-  }
-
-  if (scan.phase === 'consent') {
-    return (
-      <ConsentScreen
-        serverUrl={paired.url}
-        onAccept={() => void scan.requestPermission()}
-        onCancel={() => scan.setPhase('idle')}
-      />
-    );
-  }
-
-  if (scan.phase === 'permission') {
-    return (
-      <Panel>
-        <div className="flex items-start gap-3 rounded-card border border-line bg-surface p-3">
-          <ShieldAlert className="mt-0.5 size-5 shrink-0 text-accent" aria-hidden />
-          <span className="text-sm leading-relaxed text-ink-muted">
-            Android is asking for file access on its own Settings page. Turn on{' '}
-            <strong className="text-ink">Allow access to manage all files</strong>, then come
-            back here — this screen updates by itself.
-          </span>
-        </div>
-        {/* The hook polls while this screen is open. This button exists anyway: the
-            automatic check already failed once on a real device, and a screen with no way
-            forward is worse than one extra tap. */}
-        <Button className="min-h-12" onClick={() => void scan.recheckPermission()}>
-          <RefreshCw className="size-4" aria-hidden /> I&apos;ve turned it on
-        </Button>
-
-        {scan.permission === 'denied' && (
-          <p className="text-sm text-warn">
-            Access still reads as off. If you just turned it on, tap the button above.
-          </p>
-        )}
-
-        <Button variant="subtle" onClick={() => scan.setPhase('idle')}>
-          Cancel
-        </Button>
-      </Panel>
-    );
-  }
-
-  if (scan.phase === 'choosing') {
-    return (
-      <Panel>
-        <div className="flex flex-col gap-2">
-          <h1 className="text-xl font-semibold tracking-tight">How much to index</h1>
-          <p className="text-sm text-ink-muted">
-            You can start small and index the rest later. Nothing is deleted either way.
-          </p>
-        </div>
-
-        <ModeCard
-          selected={mode === 'quick'}
-          onSelect={() => setMode('quick')}
-          title="Recent files"
-          detail="The 500 most recent. Useful in about a minute — this is the one to pick first."
-        />
-        <ModeCard
-          selected={mode === 'full'}
-          onSelect={() => setMode('full')}
-          title="Everything"
-          detail="Every document on the phone. Thorough, but it can run for hours."
-        />
-
-        <Button className="min-h-12" onClick={() => void scan.start(mode)}>
-          <Rocket className="size-4" aria-hidden /> Start indexing
-        </Button>
-      </Panel>
-    );
-  }
-
-  if (scan.phase === 'scanning' || scan.phase === 'done') {
-    const { total, seen, uploaded, duplicate, failed, currentName, elapsedMs } = scan.progress;
-    const done = scan.phase === 'done';
-    // A count, never a bare spinner. During a scan of thousands of files a spinner is
-    // indistinguishable from a hang, and someone watching cannot tell it is working.
-    const pct = total > 0 ? Math.min(100, Math.round((seen / total) * 100)) : 0;
-
-    return (
-      <Panel>
-        <div className="flex flex-col gap-2">
-          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-tight">
-            {done ? (
-              <CheckCircle2 className="size-5 text-accent" aria-hidden />
-            ) : (
-              <Loader2 className="size-5 animate-spin text-accent" aria-hidden />
-            )}
-            {done ? (total === 0 ? 'Already up to date' : 'Finished') : 'Indexing…'}
-          </h1>
-          {/* "0 of 500 files" for a rescan with nothing new reads as a failure. When
-              there is genuinely nothing to do, say that instead of showing an empty bar. */}
-          {done && total === 0 ? (
-            <p className="text-sm text-ink-muted">
-              Every file on this phone has already been indexed. New ones will be picked
-              up next time you scan.
-            </p>
-          ) : (
-            <p className="text-sm tabular-nums text-ink-muted">
-              {total > 0
-                ? `${seen.toLocaleString()} of ${total.toLocaleString()} files`
-                : `${seen.toLocaleString()} files`}
-              {' · '}
-              {(elapsedMs / 1000).toFixed(0)}s
-            </p>
-          )}
-        </div>
-
-        <div className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken">
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-300"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-
-        <dl className="flex flex-wrap gap-x-6 gap-y-1 text-sm">
-          <Stat label="indexed" value={uploaded} />
-          {/* Already held. Counting these as new would make the total a lie. */}
-          <Stat label="already known" value={duplicate} />
-          <Stat label="skipped" value={failed} />
-        </dl>
-
-        {currentName && !done && (
-          <p className="truncate text-xs text-ink-faint">{currentName}</p>
-        )}
-
-        {done ? (
-          <Button className="min-h-12" onClick={() => scan.setPhase('idle')}>
-            Done
-          </Button>
-        ) : (
-          <Button variant="subtle" onClick={scan.cancel}>
-            Stop
-          </Button>
-        )}
-      </Panel>
-    );
-  }
-
-  return (
-    <Panel>
-      <h1 className="text-xl font-semibold tracking-tight">The scan stopped</h1>
-      <p className="text-sm text-warn">{scan.error}</p>
-      <Button variant="subtle" onClick={() => scan.setPhase('idle')}>
-        Back
-      </Button>
-    </Panel>
-  );
-}
-
-function Panel({ children }: { children: React.ReactNode }) {
-  return <div className="mx-auto flex max-w-2xl flex-col gap-5 px-4 py-8">{children}</div>;
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <dt className="order-2 text-xs text-ink-faint">{label}</dt>
-      <dd className="order-1 text-base font-semibold tabular-nums text-ink">
-        {value.toLocaleString()}
-      </dd>
+  return <div className="mx-auto flex max-w-2xl flex-col gap-5 px-4 py-8">
+    <h1 className="text-xl font-semibold">Find the files on this device</h1>
+    <p className="text-sm text-ink-muted">Search by contents, even when filenames are just numbers.
+      PDFs, photos, screenshots, text and Word documents are supported, up to 25 MB each.</p>
+    <div className="rounded-card border border-line bg-surface p-4 text-sm">
+      Selected documents are sent to your configured Memora server for storage and text recognition.
+      Extracted text and search queries may be sent to the embedding provider. Aadhaar and PAN
+      masking applies before embedding; the original uploaded file is not masked.
+      This device has its own library. Other devices cannot search it.
     </div>
-  );
-}
-
-function ModeCard({
-  selected,
-  onSelect,
-  title,
-  detail,
-}: {
-  selected: boolean;
-  onSelect: () => void;
-  title: string;
-  detail: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={cn(
-        'flex flex-col gap-1 rounded-card border p-3 text-left transition-colors',
-        selected ? 'border-accent bg-accent-soft' : 'border-line bg-surface',
-      )}
-    >
-      <span className="text-sm font-medium text-ink">{title}</span>
-      <span className="text-xs leading-relaxed text-ink-muted">{detail}</span>
-    </button>
-  );
+    <p className="text-sm text-ink-muted">{isNative()
+      ? 'After permission, Memora checks for new and changed files while the app is open and when you return. Keep it open until files finish uploading; server indexing can continue afterward.'
+      : 'Choose a folder to grant read access. Supporting browsers remember it and check while Memora is open. If access expires, choose it again. Other browsers require you to select the folder for each rescan.'}</p>
+    <div className="flex flex-wrap gap-3">
+      <Button disabled={scan.phase === 'scanning'} onClick={() => void scan.choose()}>
+        {isNative() ? 'Allow online indexing & scan' : 'Allow online indexing & choose folder'}
+      </Button>
+      <Button variant="subtle" disabled={scan.phase === 'scanning'} onClick={() => void scan.start()}>Rescan</Button>
+      {scan.phase === 'scanning' && <Button variant="subtle" onClick={scan.cancel}>Pause uploads</Button>}
+      <Button variant="subtle" onClick={scan.disable}>Turn off automatic discovery</Button>
+    </div>
+    {scan.phase === 'permission' && <p>Grant file access in Android settings, then return here.</p>}
+    <p role="status" className="text-sm">{scan.phase}: {scan.progress.seen} checked · {scan.progress.queued} sent for indexing · {scan.progress.known} unchanged · {scan.progress.failed} need attention</p>
+    <Link className="text-accent underline" to="/search">Search completed documents now</Link>
+    {scan.error && <p role="alert" className="text-warn">{scan.error}</p>}
+    <div className="flex flex-wrap gap-3 text-sm">
+      {Object.entries(scan.jobs.counts).map(([state, count]) => <span key={state}>{count} {state}</span>)}
+    </div>
+    {scan.issues.map((issue, i) => <p className="text-sm text-warn" key={i}>{issue}</p>)}
+    <ul className="flex flex-col gap-2">
+      {scan.jobs.jobs.map(job => <li key={job.id} className="rounded-card border border-line p-3 text-sm">
+        <p className="break-all font-medium">{job.filename}</p><p>{job.status}</p>
+        {job.error && <p className="text-warn">{job.error}</p>}
+        {job.status === 'failed' && <Button variant="subtle" onClick={() => void scan.retry(job.id)}>Retry indexing</Button>}
+      </li>)}
+    </ul>
+    <div className="flex gap-3">
+      <Button variant="subtle" disabled={scan.jobsOffset === 0}
+        onClick={() => scan.setJobsOffset(n => Math.max(0, n - 100))}>Previous files</Button>
+      <Button variant="subtle" disabled={scan.jobsOffset + 100 >= Object.values(scan.jobs.counts).reduce((a, b) => a + b, 0)}
+        onClick={() => scan.setJobsOffset(n => n + 100)}>Next files</Button>
+    </div>
+  </div>;
 }

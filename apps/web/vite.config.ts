@@ -52,6 +52,7 @@ export default defineConfig({
     // and defeats pairing completely, without touching a line of API code. The phone gets
     // in through the Capacitor app and a device token, never through this port.
     port: 5173,
+    watch: { ignored: ['**/android/**', '**/test-results/**', '**/playwright-report/**'] },
     proxy: {
       // The API mounts its routers at the root, so the /api prefix is a dev-server
       // convention only and has to be stripped. Without the rewrite every call 404s.
