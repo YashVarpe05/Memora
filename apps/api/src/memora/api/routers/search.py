@@ -42,7 +42,11 @@ from memora.services.query_understanding import (
     build_query_understanding,
     passthrough,
 )
-from memora.services.retrieval import has_weak_evidence, has_weak_image_evidence
+from memora.services.retrieval import (
+    MIN_SIMILARITY_UNCALIBRATED,
+    has_weak_evidence,
+    has_weak_image_evidence,
+)
 from memora.services.search import Boosts, fuse_results, search_documents
 from memora.services.stage1_health import describe, health
 
@@ -399,8 +403,19 @@ async def search(
         held = await MemoryRepository(session, user_id).document_types()
         type_mismatch = should_refuse(filters.document_type, held)
 
-    text_weak = not lexical_ids and has_weak_evidence(
-        [outcome.raw_top_score] if outcome.results else []
+    # A recognised document type that the corpus holds corroborates a low dense score, so
+    # short queries like "pan" or "cv" are not refused for scoring in the embedder's noise.
+    type_corroborated = bool(wanted_type) and any(r.document_type == wanted_type for r in ranked)
+    settings = get_settings()
+    minimum = (
+        settings.local_min_similarity
+        if settings.embedding_provider == "local"
+        else MIN_SIMILARITY_UNCALIBRATED
+    )
+    text_weak = (
+        not lexical_ids
+        and not type_corroborated
+        and has_weak_evidence([outcome.raw_top_score] if outcome.results else [], minimum)
     )
     image_weak = not image_evidence
     if not ranked or type_mismatch or (text_weak and image_weak):

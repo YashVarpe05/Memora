@@ -53,6 +53,24 @@ mechanism, not accuracy on real documents.
   ("registration", "tax", "receipt"). Hence both signals plus document-type labels, and
   weighting rare words above common ones, rather than any single rule.
 
+## Implemented 2026-11-10 (synthetic data; floor NOT calibrated on real documents)
+`has_weak_evidence(similarities, minimum)` takes a floor; the search router uses the new
+`local_min_similarity` setting when `EMBEDDING_PROVIDER=local` and the legacy 0.35 otherwise.
+A recognised document type present in the ranked results now corroborates a low score, as
+a lexical match already did. Through the real pipeline (16 synthetic documents indexed with
+the real model, 25 answerable + 9 absent queries):
+
+| floor | absent refused | answerable falsely refused | Recall@1 |
+|---|---|---|---|
+| 0.35 (before) | 1/9 | 0/25 | 24/25 |
+| **0.78 (default)** | **3/9** | **0/25** | **24/25** |
+| 0.80-0.86 | 4-5/9 | 1/25 ("cv") | 23/25 |
+
+0.78 is the highest floor that hides no answerable query. Six absent queries are still
+answered: their words ("registration", "tax", "receipt", "certificate") match generic terms
+in the library. Weighting rare words above common ones is the next change and needs the
+owner's real queries to tune; it is not built.
+
 ## Data this needs (blocked on the owner)
 - The personal gold corpus is not on this machine (`data/corpus` is empty), so the gold
   eval cannot run. Calibration needs the owner's 20 real queries (`context/my-queries.txt`,

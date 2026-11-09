@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     local_embedding_model: str = "intfloat/multilingual-e5-base"
     local_embedding_revision: str = "d128750597153bb5987e10b1c3493a34e5a4502a"
     local_embedding_threads: int = 2
+    # Weak-evidence floor on multilingual-e5-base's scale, which is not Gemini's: real hits
+    # and unrelated queries both score 0.75-0.85, so this only means something together with
+    # the lexical and document-type corroboration in the search router.
+    #
+    # 0.78 is the highest value that falsely refused 0 of 25 answerable queries on a
+    # synthetic 16-document pack (0.80 and above lost "cv"); it refuses 3 of 9 absent
+    # queries, up from 1. Chosen to avoid hiding a real document, NOT calibrated on real
+    # documents - see prompts/refusal-calibration-local-e5.md.
+    local_min_similarity: float = 0.78
     embedding_model: str = "gemini-embedding-001"
     # Pinned in DDL as vector(768). gemini-embedding-001 defaults to 3072, so this
     # is requested explicitly via output_dimensionality. Changing it needs a migration.

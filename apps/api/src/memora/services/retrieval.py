@@ -43,7 +43,9 @@ MIN_SIMILARITY_UNCALIBRATED = 0.35
 MIN_IMAGE_SIMILARITY_UNCALIBRATED = 0.25
 
 
-def has_weak_evidence(similarities: list[float]) -> bool:
+def has_weak_evidence(
+    similarities: list[float], minimum: float = MIN_SIMILARITY_UNCALIBRATED
+) -> bool:
     """True when nothing retrieved is good enough to act on.
 
     Takes scores rather than chunks so both layers can call it: layer one asks whether
@@ -55,7 +57,7 @@ def has_weak_evidence(similarities: list[float]) -> bool:
     """
     if not similarities:
         return True
-    return max(similarities) < MIN_SIMILARITY_UNCALIBRATED
+    return max(similarities) < minimum
 
 
 def has_weak_image_evidence(similarities: list[float]) -> bool:
