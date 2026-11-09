@@ -5,7 +5,10 @@ x-runtime: &runtime
   REDIS_URL: redis://redis:6379/0
   OCR_URL: http://ocr:8080
   STAGE1_PROVIDER: rules
-  GEMINI_API_KEY: ${GEMINI_API_KEY:?Set GEMINI_API_KEY}
+  # lexical needs no account. Set EMBEDDING_PROVIDER=gemini and GEMINI_API_KEY for meaning
+  # search; the image has no torch, so EMBEDDING_PROVIDER=local needs a semantic image.
+  EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-lexical}
+  GEMINI_API_KEY: ${GEMINI_API_KEY:-}
   EMBEDDING_MODEL: ${EMBEDDING_MODEL:-gemini-embedding-001}
   BLOB_ROOT: /state/blobs
   PAIRING_STORE: /state/auth/devices.sqlite3
