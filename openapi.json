@@ -136,6 +136,27 @@
         "title": "CitationOut",
         "type": "object"
       },
+      "DevicePageIn": {
+        "properties": {
+          "number": {
+            "maximum": 10000.0,
+            "minimum": 1.0,
+            "title": "Number",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 200000,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "number",
+          "text"
+        ],
+        "title": "DevicePageIn",
+        "type": "object"
+      },
       "DeviceToken": {
         "properties": {
           "device_token": {
@@ -808,6 +829,58 @@
         "title": "SearchResult",
         "type": "object"
       },
+      "TextIndexRequest": {
+        "description": "Text a device extracted itself. The file stays on the device.",
+        "properties": {
+          "byte_size": {
+            "default": 0,
+            "maximum": 26214400.0,
+            "minimum": 0.0,
+            "title": "Byte Size",
+            "type": "integer"
+          },
+          "content_hash": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "device_path": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "title": "Device Path",
+            "type": "string"
+          },
+          "filename": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "Filename",
+            "type": "string"
+          },
+          "mime_type": {
+            "default": "",
+            "maxLength": 128,
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "pages": {
+            "items": {
+              "$ref": "#/components/schemas/DevicePageIn"
+            },
+            "maxItems": 500,
+            "minItems": 1,
+            "title": "Pages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "content_hash",
+          "filename",
+          "device_path",
+          "pages"
+        ],
+        "title": "TextIndexRequest",
+        "type": "object"
+      },
       "UploadResponse": {
         "properties": {
           "chunks": {
@@ -1243,6 +1316,47 @@
           }
         },
         "summary": "Retry",
+        "tags": [
+          "indexing"
+        ]
+      }
+    },
+    "/index/text-jobs": {
+      "post": {
+        "operationId": "index_device_text_index_text_jobs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextIndexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Index Device Text",
         "tags": [
           "indexing"
         ]

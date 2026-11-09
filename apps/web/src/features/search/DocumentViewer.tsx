@@ -80,7 +80,7 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
       {(isPdf || isImage) && src && <img src={src} alt={`${result.document_label ?? result.title}, page ${page}`}
         className="mx-auto max-w-none" style={{ width: `${zoom}%` }} />}
       {!src && !error && (isPdf || isImage) && <p role="status" className="p-6">Loading preview…</p>}
-      {(error || media.failed) && <p role="alert" className="p-6 text-warn">{error ?? 'File could not be loaded.'}</p>}
+      {(error || media.failed) && <p role="alert" className="p-6 text-warn">{error ?? 'File could not be loaded. It may be stored only on the device where it was found.'}</p>}
       {!isPdf && !isImage && <div className="flex flex-col gap-4 p-6">
         <p className="whitespace-pre-wrap text-sm">{result.snippet}</p>
         {media.src && <a className="text-accent underline" href={media.src} download={result.filename}>Download and open {result.filename}</a>}

@@ -164,6 +164,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/index/text-jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Index Device Text */
+        post: operations["index_device_text_index_text_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/memories/{memory_id}": {
         parameters: {
             query?: never;
@@ -394,6 +411,13 @@ export interface components {
             snippet: string;
             /** Title */
             title: string;
+        };
+        /** DevicePageIn */
+        DevicePageIn: {
+            /** Number */
+            number: number;
+            /** Text */
+            text: string;
         };
         /** DeviceToken */
         DeviceToken: {
@@ -652,6 +676,30 @@ export interface components {
              * @default false
              */
             uncertain: boolean;
+        };
+        /**
+         * TextIndexRequest
+         * @description Text a device extracted itself. The file stays on the device.
+         */
+        TextIndexRequest: {
+            /**
+             * Byte Size
+             * @default 0
+             */
+            byte_size: number;
+            /** Content Hash */
+            content_hash: string;
+            /** Device Path */
+            device_path: string;
+            /** Filename */
+            filename: string;
+            /**
+             * Mime Type
+             * @default
+             */
+            mime_type: string;
+            /** Pages */
+            pages: components["schemas"]["DevicePageIn"][];
         };
         /** UploadResponse */
         UploadResponse: {
@@ -952,6 +1000,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    index_device_text_index_text_jobs_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TextIndexRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadResponse"];
                 };
             };
             /** @description Validation Error */

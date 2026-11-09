@@ -43,6 +43,18 @@ Smallest change, testable now.
 - Acceptance: airplane-mode-free check that the request body contains no file bytes;
   the same 3 Hindi/Marathi/English synthetic documents used in the web e2e are found.
 
+### Step 2, server half: IMPLEMENTED 2026-11-10 (client not built)
+`POST /index/text-jobs` takes `{content_hash, filename, device_path, mime_type, byte_size,
+pages:[{number,text}]}` and returns the same shape as `/uploads`. It re-masks, chunks,
+embeds, classifies and stores a memory with no file; duplicates by `content_hash` attach
+the new path. `/memories/{id}/file` answers 410 for these, and the viewer says the file may
+be stored only on the device. No schema change: `content_hash` is the device's own hash.
+Limits: 500 pages, 200,000 characters per page, 500,000 in total. Verified by 5 tests (masking,
+no-file 410, search by content with a meaningless filename, dedupe, validation, size).
+Not built: the ML Kit plugin and the phone client that calls it; the Android build and
+install are unverified on a device. Indexing is synchronous in the request (no job row), so
+the phone retries on failure.
+
 ## Step 3 - Web on-device extraction (optional, after step 2)
 Browser WASM OCR (tesseract.js) so a laptop that only hosts the UI also sends text only.
 Slower and heavier than the server's Tesseract; do it only if hosting the server is the
