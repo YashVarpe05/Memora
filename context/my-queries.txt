@@ -1,21 +1,48 @@
 # My queries - write each from memory. Optional: [original_filename.ext]. No identity numbers or secrets.
-1. 
-2. 
-3. 
-4. 
-5. 
-6. 
-7. 
-8. 
-9. 
-10. 
-11. 
-12. 
-13. 
-14. 
-15. 
-16. 
-17. 
-18. 
-19. 
-20. 
+#
+# DRAFTED BY CLAUDE ON 2026-11-09, NOT FROM THE OWNER'S MEMORY. These are plausible stand-ins
+# written in three voices (lazy, vague, normal) plus Hindi/Hinglish/Marathi. They match the
+# synthetic pack used for the mechanism check, not the owner's real files. Replace or edit
+# them with real ones before treating any number from them as accuracy on real documents.
+
+## Documents that exist (expected file in brackets)
+# lazy - one or two words
+1. aadhaar [aadhaar.txt]
+2. pan [pan_card.txt]
+3. light bill [electricity_bill_march.txt]
+4. fee receipt [college_fee_receipt.txt]
+5. marksheet [ssc_marksheet.txt]
+6. cv [resume.txt]
+7. ticket [train_ticket_pune_delhi.txt]
+# vague / dumb - doesn't know the name, describes the feeling of it
+8. that govt paper with my photo and a long number [aadhaar.txt]
+9. the thing i paid for college this sem [college_fee_receipt.txt]
+10. paper for the house i live in rent wala [rent_agreement.txt]
+11. hospital insurance papers [health_insurance_policy.txt]
+12. the pdf where they gave me the job [offer_letter.txt]
+13. bill for current at home [electricity_bill_march.txt]
+14. my driving thing for the bike [driving_licence.txt]
+# normal - full description
+15. electricity bill for March with my Pune address [electricity_bill_march.txt]
+16. SSC marksheet with my seat number and percentage [ssc_marksheet.txt]
+17. train ticket from Pune to Delhi [train_ticket_pune_delhi.txt]
+18. health insurance policy and when it renews [health_insurance_policy.txt]
+19. hotel booking in Goa in June [hotel_booking_goa.txt]
+20. bank statement showing salary credit [bank_statement.txt]
+# Hindi / Hinglish / Marathi
+21. mera aadhaar card [aadhaar.txt]
+22. बिजली का बिल [electricity_bill_march.txt]
+23. माझी गुणपत्रिका [ssc_marksheet.txt]
+24. kiraye ka agreement [rent_agreement.txt]
+25. pan card ki copy [pan_card.txt]
+
+## Documents that do NOT exist (the right answer is "nothing found")
+26. my passport [none]
+27. vehicle registration RC book [none]
+28. marriage certificate [none]
+29. visa for Canada [none]
+30. GST registration certificate [none]
+31. property tax receipt [none]
+32. something about a pet dog [none]
+33. biryani recipe [none]
+34. मेरा पासपोर्ट [none]

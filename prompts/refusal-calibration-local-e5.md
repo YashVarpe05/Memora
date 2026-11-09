@@ -39,6 +39,20 @@ and the repo's rule is that a threshold needs a measurement behind it.
    the change): run `python -m memora.eval.retrieval` with `EMBEDDING_PROVIDER=local` on the
    unchanged code and record it in `docs/`.
 
+## Mechanism check on synthetic data (2026-11-09, dense scores only, no server)
+Claude drafted 34 queries (`context/my-queries.txt`; lazy, vague, normal, Hindi/Marathi) and
+a 16-document synthetic pack, then embedded both with the real local model. This tests the
+mechanism, not accuracy on real documents.
+- Dense Recall@1 24/25, Recall@3 25/25 (the one miss is the single word "marksheet").
+- Top score, 25 queries with an answer: min 0.752, median 0.825, max 0.901.
+- Top score, 9 queries with no answer: min 0.760, median 0.803, max 0.821.
+- The ranges overlap. The largest cutoff that loses no real query is 0.750, which refuses
+  0 of 9 absent queries. **A score threshold alone cannot work with this model.**
+- A word-match check (query content words against document text) alone refuses 6 of 9 absent
+  queries but also drops "pan" and "cv", and three absent queries still match a generic word
+  ("registration", "tax", "receipt"). Hence both signals plus document-type labels, and
+  weighting rare words above common ones, rather than any single rule.
+
 ## Data this needs (blocked on the owner)
 - The personal gold corpus is not on this machine (`data/corpus` is empty), so the gold
   eval cannot run. Calibration needs the owner's 20 real queries (`context/my-queries.txt`,
