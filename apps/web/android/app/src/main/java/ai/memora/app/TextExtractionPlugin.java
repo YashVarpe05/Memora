@@ -37,9 +37,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import java.util.LinkedHashSet;
 import java.util.Locale;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -95,13 +93,20 @@ public class TextExtractionPlugin extends Plugin {
         final JSArray pages = new JSArray();
 
         if (mime.equals("text/plain") || mime.equals("text/markdown")) {
-            pages.put(page(1, new String(bytes, StandardCharsets.UTF_8)));
+            pages.put(page(1, decodeText(bytes)));
         } else if (mime.startsWith("image/")) {
             recognisers();
             pages.put(page(1, recognise(decodeSampled(bytes))));
         } else if (mime.equals("application/pdf")) {
             recognisers();
-            renderPdf(uri, pages);
+            try {
+                renderPdf(uri, pages);
+            } catch (SecurityException | java.io.IOException error) {
+                // Password-protected or damaged PDFs (bank statements, credit reports) cannot
+                // be rendered. Leave them out of the index quietly; they would otherwise be
+                // reported as a failure on every scan and can never be fixed from here.
+                while (pages.length() > 0) pages.remove(pages.length() - 1);
+            }
         } else {
             throw new Unsupported(mimeType.isEmpty() ? "unknown type" : mimeType);
         }
@@ -112,6 +117,17 @@ public class TextExtractionPlugin extends Plugin {
         result.put("pages", pages);
         result.put("engine", "mlkit-latin+devanagari");
         return result;
+    }
+
+    /** Windows and WhatsApp exports are often UTF-16; read as UTF-8 they are full of NULs. */
+    private static String decodeText(byte[] bytes) {
+        java.nio.charset.Charset charset = StandardCharsets.UTF_8;
+        if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0xFF && (bytes[1] & 0xFF) == 0xFE) {
+            charset = StandardCharsets.UTF_16LE;
+        } else if (bytes.length >= 2 && (bytes[0] & 0xFF) == 0xFE && (bytes[1] & 0xFF) == 0xFF) {
+            charset = StandardCharsets.UTF_16BE;
+        }
+        return new String(bytes, charset).replace("\u0000", "").replace("\uFEFF", "");
     }
 
     private static JSObject page(int number, String text) {
@@ -153,7 +169,29 @@ public class TextExtractionPlugin extends Plugin {
         options.inSampleSize = sample;
         Bitmap bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
         if (bitmap == null) throw new Unsupported("image could not be decoded");
-        return bitmap;
+        return upright(bitmap, bytes);
+    }
+
+    /**
+     * Phone photos of documents are usually stored sideways with an EXIF rotation flag that
+     * BitmapFactory ignores. Recognising the unrotated pixels reads almost nothing.
+     */
+    private static Bitmap upright(Bitmap bitmap, byte[] bytes) {
+        int degrees = 0;
+        try (InputStream stream = new java.io.ByteArrayInputStream(bytes)) {
+            int orientation = new android.media.ExifInterface(stream).getAttributeInt(
+                android.media.ExifInterface.TAG_ORIENTATION,
+                android.media.ExifInterface.ORIENTATION_NORMAL);
+            if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_90) degrees = 90;
+            else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_180) degrees = 180;
+            else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_270) degrees = 270;
+        } catch (Exception ignored) {
+            return bitmap;
+        }
+        if (degrees == 0) return bitmap;
+        android.graphics.Matrix matrix = new android.graphics.Matrix();
+        matrix.postRotate(degrees);
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
     }
 
     private void renderPdf(Uri uri, JSArray pages) throws Exception {
@@ -175,18 +213,19 @@ public class TextExtractionPlugin extends Plugin {
         }
     }
 
-    /** Both recognisers, merged by line, so English and Devanagari text both survive. */
+    /**
+     * Devanagari text wins when it is really there; otherwise the Latin result. Merging both
+     * adds junk lines, because each model "reads" the other script as nonsense.
+     */
     private String recognise(Bitmap bitmap) throws Exception {
         InputImage image = InputImage.fromBitmap(bitmap, 0);
-        String first = Tasks.await(latin.process(image)).getText();
-        String second = Tasks.await(devanagari.process(image)).getText();
-        Set<String> lines = new LinkedHashSet<>();
-        for (String text : new String[] {first, second}) {
-            for (String line : text.split("\\r?\\n")) {
-                String trimmed = line.trim();
-                if (!trimmed.isEmpty()) lines.add(trimmed);
-            }
+        String latinText = Tasks.await(latin.process(image)).getText();
+        String devanagariText = Tasks.await(devanagari.process(image)).getText();
+        int devanagariChars = 0;
+        for (int i = 0; i < devanagariText.length(); i++) {
+            char c = devanagariText.charAt(i);
+            if (c >= '\u0900' && c <= '\u097F') devanagariChars++;
         }
-        return String.join("\n", lines);
+        return devanagariChars >= 5 ? devanagariText.trim() : latinText.trim();
     }
 }

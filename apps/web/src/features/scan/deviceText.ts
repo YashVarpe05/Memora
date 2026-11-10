@@ -7,15 +7,18 @@ type Indexed = components['schemas']['UploadResponse'];
 
 /**
  * Read a file on the device and send only its masked text. Resolves `null` when the device
- * cannot read this type, so the caller can fall back to uploading the file. Throws when it
+ * cannot read this type, so the caller can fall back to uploading the file, and `'no-text'` when
+ * the file has nothing to index. Throws when it
  * can read the type but indexing failed: a failed read must never turn into an upload.
  */
 export async function indexOnDevice(
   extractor: TextExtractor,
   file: DiscoveredFile,
-): Promise<Indexed | null> {
+): Promise<Indexed | 'no-text' | null> {
   const extracted = await extractor.extract(file.path, file.mimeType);
   if (!extracted) return null;
+  // Nothing readable (a landscape photo, a blank page): not an error and not worth sending.
+  if (!extracted.pages.some(page => page.text.trim())) return 'no-text';
   const pages = extracted.pages.map(page => ({
     number: page.number,
     text: maskIdentifiers(page.text).text,

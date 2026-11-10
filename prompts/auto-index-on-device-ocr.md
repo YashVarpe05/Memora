@@ -78,6 +78,30 @@ Android emulator (API 36, x86_64, Google APIs), debug APK, trial server over `ad
   background scanning while the app is closed (no WorkManager), and fallback upload of
   Word/email files on the phone.
 
+### Real phone: Galaxy S23 FE, Android 16, over USB (2026-11-10)
+Debug APK, trial server on the laptop, `adb reverse`, paired by typed address and code.
+~950 documents indexed on-device from ~1,700 files checked (scan still resuming), 0 failures
+after the fixes below. Found and fixed only because it ran on real files:
+- **HEIC**: Samsung's default photo format was rejected ("Unsupported format", ~40 files).
+- **Photos with no text** were counted as failures; now skipped and remembered.
+- **Sideways photos**: EXIF rotation is now applied before OCR (not tested on a rotated
+  document). Running both recognisers and merging added junk lines; now Devanagari text is
+  used only when at least 5 Devanagari characters are present, otherwise the Latin result.
+- **NUL bytes** (a UTF-16 WhatsApp text file) crashed indexing with a 500; the server strips
+  them and the phone decodes UTF-16 by BOM. Regression test added.
+- **Password-protected or damaged PDFs** (a credit report) are skipped quietly.
+- **Screen sleep** silently stopped long scans; the scan now holds a screen wake lock.
+- **Aadhaar Virtual ID (16 digits, Verhoeff-valid) was not masked.** 13 stored chunks held
+  one. Masking now covers it as `[AADHAAR_VID]` in Python and TypeScript (parity tests), the
+  stored chunks were re-masked (0 identifiers left in 3,080 chunks), and the live server
+  masks it. Embeddings of those 13 chunks were computed from the unmasked text.
+- Search on the phone, titles only: "marksheet" and "resume" returned 10 correctly labelled
+  results each; "electricity bill" ranked a Bill first; "my aadhaar card" returned Aadhaar
+  documents. Weak spots: "train ticket" put two unlabelled results above the first Ticket,
+  "insurance policy" has no labelled match, and "something about a pet dog" is answered
+  rather than refused (the no-match limit recorded in refusal-calibration-local-e5.md).
+- The USB link dropped about five times (10-20 minutes apart); not diagnosed.
+
 ## Step 3 - Web on-device extraction (optional, after step 2)
 Browser WASM OCR (tesseract.js) so a laptop that only hosts the UI also sends text only.
 Slower and heavier than the server's Tesseract; do it only if hosting the server is the

@@ -45,6 +45,10 @@ class TextIngestResult:
     deduplicated: bool
 
 
+def _clean(text: str) -> str:
+    return text.replace("\x00", "").strip()
+
+
 def _source_type(mime_type: str) -> str:
     if mime_type == "application/pdf":
         return "pdf"
@@ -85,7 +89,9 @@ async def ingest_device_text(
             deduplicated=True,
         )
 
-    blocks = [Block(text=p.text.strip(), page=p.number) for p in pages if p.text.strip()]
+    # Postgres text cannot hold NUL. A UTF-16 file decoded as UTF-8, or a noisy OCR pass,
+    # produces them, and one such file must not fail with a 500.
+    blocks = [Block(text=clean, page=p.number) for p in pages if (clean := _clean(p.text))]
     if not blocks:
         raise NoTextError("No text was found in this document.")
 

@@ -17,6 +17,7 @@ from memora.services.masking import (
     AADHAAR_TOKEN,
     PAN_TOKEN,
     MaskedText,
+    contains_identifier,
     mask_identifiers,
     verhoeff_valid,
 )
@@ -273,3 +274,18 @@ def test_a_forgery_carrying_no_identifier_is_harmless():
         object.__setattr__(obj, name, value)
 
     assert require_masked([obj]) == ["nothing sensitive"]
+
+
+def test_the_sixteen_digit_virtual_id_is_masked_like_the_number():
+    cases = {
+        "VID : 2345 6789 0123 4508 printed": "VID : [AADHAAR_VID] printed",
+        "vid 2345678901234508 glued": "vid [AADHAAR_VID] glued",
+        "dashed 2345-6789-0123-4508": "dashed [AADHAAR_VID]",
+        "bad 2345678901234509 keep": "bad 2345678901234509 keep",
+        "both 2345678901234508 and 234567890124 and ABCDE1234F": (
+            "both [AADHAAR_VID] and [AADHAAR_NUMBER] and [PAN_NUMBER]"
+        ),
+    }
+    for text, expected in cases.items():
+        assert mask_identifiers(text).value == expected
+    assert contains_identifier("VID 2345678901234508")

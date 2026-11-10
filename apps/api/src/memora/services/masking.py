@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 
 AADHAAR_TOKEN = "[AADHAAR_NUMBER]"
 PAN_TOKEN = "[PAN_NUMBER]"
+VID_TOKEN = "[AADHAAR_VID]"
 
 # Aadhaar: twelve digits, optionally grouped in fours. Never starts with 0 or 1 (UIDAI).
 # The lookarounds stop a match inside a longer digit run.
@@ -33,6 +34,10 @@ _AADHAAR_RE = re.compile(r"(?<!\d)([2-9]\d{3})[ -]?(\d{4})[ -]?(\d{4})(?!\d)")
 # PAN: five letters, four digits, one letter. Distinctive enough that shape alone is a
 # safe test - and a missed PAN leaks, so this deliberately does not also require the
 # fourth character to be a valid entity-type code.
+# The 16-digit Aadhaar Virtual ID printed on e-Aadhaar letters. It stands in for the number
+# and carries the same Verhoeff check digit, so it is as sensitive as the number itself.
+_VID_RE = re.compile(r"(?<!\d)([2-9]\d{3})[ -]?(\d{4})[ -]?(\d{4})[ -]?(\d{4})(?!\d)")
+
 _PAN_RE = re.compile(r"(?<![A-Z0-9])[A-Z]{5}[0-9]{4}[A-Z](?![A-Z0-9])")
 
 # Verhoeff tables. Aadhaar carries a Verhoeff check digit; validating it is what separates
@@ -141,6 +146,9 @@ def _find_spans(text: str) -> list[tuple[int, int, str, str]]:
     for match in _AADHAAR_RE.finditer(text):
         if verhoeff_valid("".join(match.groups())):
             spans.append((match.start(), match.end(), "aadhaar", AADHAAR_TOKEN))
+    for match in _VID_RE.finditer(text):
+        if verhoeff_valid("".join(match.groups())):
+            spans.append((match.start(), match.end(), "aadhaar_vid", VID_TOKEN))
     for match in _PAN_RE.finditer(text):
         spans.append((match.start(), match.end(), "pan", PAN_TOKEN))
     return sorted(spans)

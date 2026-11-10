@@ -48,6 +48,10 @@ export function useIndexController() {
   async function start(_mode: ScanMode = 'full') {
     if (active.current || !pairedServer() || !consented()) return;
     active.current = true;
+    // The scan only runs while the app is in front. Keep the screen awake meanwhile, or the
+    // phone sleeps a few minutes in and silently stops a long first scan.
+    let awake: { release(): Promise<void> } | null = null;
+    try { awake = await navigator.wakeLock?.request('screen') ?? null; } catch { /* optional */ }
     stop.current = false;
     setError(null); setIssues([]); setPhase('scanning');
     setProgress({ seen: 0, queued: 0, known: 0, failed: 0 });
@@ -84,9 +88,12 @@ export function useIndexController() {
           if (extractor.current) {
             const indexed = await indexOnDevice(extractor.current, file);
             if (indexed) {
-              known[file.path] = { fingerprint, job: indexed.memory_id };
+              // A photo with no text is normal, not a failure. Remember it so the next scan
+              // does not read it again.
+              known[file.path] = { fingerprint, job: indexed === 'no-text' ? 'no-text' : indexed.memory_id };
               await writeState(key, known);
-              setProgress(p => ({ ...p, queued: p.queued + 1 }));
+              setProgress(p => indexed === 'no-text'
+                ? { ...p, known: p.known + 1 } : { ...p, queued: p.queued + 1 });
               continue;
             }
           }
@@ -137,7 +144,7 @@ export function useIndexController() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Indexing interrupted. Rescan to continue.');
       setPhase('error');
-    } finally { active.current = false; }
+    } finally { active.current = false; void awake?.release().catch(() => undefined); }
   }
 
   async function choose() {
@@ -223,7 +230,7 @@ export function useIndexController() {
 
 function unsupported(file: DiscoveredFile): string | null {
   if (file.size > 25 * 1024 * 1024) return 'Larger than 25 MB. Split or compress this file.';
-  if (!/\.(pdf|png|jpe?g|webp|gif|bmp|txt|md|docx?|eml|ics)$/i.test(file.name)) return 'Unsupported format.';
+  if (!/\.(pdf|png|jpe?g|webp|gif|bmp|heic|heif|txt|md|docx?|eml|ics)$/i.test(file.name)) return 'Unsupported format.';
   return null;
 }
 

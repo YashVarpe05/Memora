@@ -12,8 +12,11 @@
 
 export const AADHAAR_TOKEN = '[AADHAAR_NUMBER]';
 export const PAN_TOKEN = '[PAN_NUMBER]';
+export const VID_TOKEN = '[AADHAAR_VID]';
 
 const AADHAAR = /(?<!\d)([2-9]\d{3})[ -]?(\d{4})[ -]?(\d{4})(?!\d)/g;
+// The 16-digit Aadhaar Virtual ID. Same Verhoeff check digit, as sensitive as the number.
+const VID = /(?<!\d)([2-9]\d{3})[ -]?(\d{4})[ -]?(\d{4})[ -]?(\d{4})(?!\d)/g;
 const PAN = /(?<![A-Z0-9])[A-Z]{5}[0-9]{4}[A-Z](?![A-Z0-9])/g;
 
 const D = [
@@ -61,6 +64,11 @@ function findSpans(text: string): Span[] {
   for (const match of text.matchAll(AADHAAR)) {
     if (verhoeffValid(`${match[1]}${match[2]}${match[3]}`)) {
       spans.push({ start: match.index!, end: match.index! + match[0].length, token: AADHAAR_TOKEN });
+    }
+  }
+  for (const match of text.matchAll(VID)) {
+    if (verhoeffValid(`${match[1]}${match[2]}${match[3]}${match[4]}`)) {
+      spans.push({ start: match.index!, end: match.index! + match[0].length, token: VID_TOKEN });
     }
   }
   for (const match of text.matchAll(PAN)) {

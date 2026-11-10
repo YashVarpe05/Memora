@@ -83,3 +83,14 @@ async def test_the_device_can_ask_where_it_keeps_a_document(api):
 async def test_device_paths_of_an_unknown_document_are_not_found(api):
     response = await api.get(f"/memories/{uuid.uuid4()}/device-paths")
     assert response.status_code == 404
+
+
+async def test_nul_characters_in_extracted_text_do_not_break_indexing(api, db, test_user_id):
+    body = _payload("Rent\x00 agreement\x00 for the flat in Pune")
+    response = await api.post("/index/text-jobs", json=body)
+    assert response.status_code == 201, response.text
+    memory_id = uuid.UUID(response.json()["memory_id"])
+    repo = ChunkRepository(db, test_user_id)
+    chunks = (await db.execute(repo.scoped().where(Chunk.memory_id == memory_id))).scalars().all()
+    assert chunks and all("\x00" not in c.text for c in chunks)
+    assert "Rent agreement" in chunks[0].text

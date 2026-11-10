@@ -19,6 +19,11 @@ const parity = [
   ['both 234567890124 and ABCDE1234F', 'both [AADHAAR_NUMBER] and [PAN_NUMBER]', 2],
   ['glued 9234567890124', 'glued 9234567890124', 0],
   ['नाम यश ABCDE1234F पता पुणे', 'नाम यश [PAN_NUMBER] पता पुणे', 1],
+  ['VID : 2345 6789 0123 4508 printed', 'VID : [AADHAAR_VID] printed', 1],
+  ['vid 2345678901234508 glued', 'vid [AADHAAR_VID] glued', 1],
+  ['dashed 2345-6789-0123-4508', 'dashed [AADHAAR_VID]', 1],
+  ['bad 2345678901234509 keep', 'bad 2345678901234509 keep', 0],
+  ['both 2345678901234508 and 234567890124 and ABCDE1234F', 'both [AADHAAR_VID] and [AADHAAR_NUMBER] and [PAN_NUMBER]', 3],
 ];
 
 for (const [input, output, count] of parity) {
