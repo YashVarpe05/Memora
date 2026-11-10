@@ -109,9 +109,21 @@ class MemoryRepository(BaseRepository[Memory]):
     async def attach_path(self, memory: Memory, path: str) -> None:
         if len(path) > 1024:
             raise ValueError("Device path exceeds 1024 characters")
-        rows = (await self.session.execute(self.scoped())).scalars().all()
+        # Only memories that already hold this path can lose it. Loading the whole library
+        # for every document made a first scan quadratic.
+        rows = (
+            (
+                await self.session.execute(
+                    self.scoped().where(
+                        Memory.id != memory.id, Memory.device_paths.contains([path])
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
         for other in rows:
-            if other.id != memory.id and path in (other.device_paths or []):
+            if path in (other.device_paths or []):
                 other.device_paths = [p for p in other.device_paths if p != path]
                 if other.device_path == path:
                     other.device_path = other.device_paths[0] if other.device_paths else None

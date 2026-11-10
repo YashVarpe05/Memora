@@ -189,3 +189,12 @@ def mask_identifiers(text: str) -> MaskedText:
 
 def mask_all(texts: list[str]) -> list[MaskedText]:
     return [mask_identifiers(t) for t in texts]
+
+
+def mask_name(name: str) -> str:
+    """A filename or title with any Aadhaar, Virtual ID or PAN replaced by its token.
+
+    Names are stored, returned by search and shown on result cards, so they leave the
+    device just like page text does.
+    """
+    return mask_identifiers(name).value

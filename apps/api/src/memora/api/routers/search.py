@@ -43,10 +43,10 @@ from memora.services.query_understanding import (
     passthrough,
 )
 from memora.services.retrieval import (
-    MIN_SIMILARITY_UNCALIBRATED,
     has_weak_evidence,
     has_weak_image_evidence,
     is_uncertain,
+    weak_evidence_floor,
 )
 from memora.services.search import Boosts, fuse_results, search_documents
 from memora.services.stage1_health import describe, health
@@ -408,11 +408,7 @@ async def search(
     # short queries like "pan" or "cv" are not refused for scoring in the embedder's noise.
     type_corroborated = bool(wanted_type) and any(r.document_type == wanted_type for r in ranked)
     settings = get_settings()
-    minimum = (
-        settings.local_min_similarity
-        if settings.embedding_provider == "local"
-        else MIN_SIMILARITY_UNCALIBRATED
-    )
+    minimum = weak_evidence_floor(settings)
     text_weak = (
         not lexical_ids
         and not type_corroborated

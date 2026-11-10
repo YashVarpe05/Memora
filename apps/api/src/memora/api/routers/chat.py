@@ -17,7 +17,7 @@ from memora.services.embedding import (
 )
 from memora.services.generation import Generator, build_generator
 from memora.services.masking import mask_identifiers
-from memora.services.retrieval import has_weak_evidence
+from memora.services.retrieval import has_weak_evidence, weak_evidence_floor
 
 router = APIRouter(tags=["chat"])
 
@@ -71,7 +71,7 @@ async def chat(
         query_vector, settings.retrieval_top_k, model_id=embedding_fingerprint(embedder)
     )
 
-    if has_weak_evidence([r.similarity for r in results]):
+    if has_weak_evidence([r.similarity for r in results], weak_evidence_floor(settings)):
         # Decided before the LLM is reachable. A model asked to refuse will sometimes
         # answer anyway, so the refusal is not delegated to it.
         return ChatResponse(

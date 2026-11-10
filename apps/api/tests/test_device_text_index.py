@@ -94,3 +94,14 @@ async def test_nul_characters_in_extracted_text_do_not_break_indexing(api, db, t
     chunks = (await db.execute(repo.scoped().where(Chunk.memory_id == memory_id))).scalars().all()
     assert chunks and all("\x00" not in c.text for c in chunks)
     assert "Rent agreement" in chunks[0].text
+
+
+async def test_identifiers_in_a_filename_are_masked_before_storage(api, db, test_user_id):
+    body = _payload("Fee receipt for the semester", name="Aadhaar 2345 6789 0124 ABCDE1234F.pdf")
+    response = await api.post("/index/text-jobs", json=body)
+    assert response.status_code == 201, response.text
+    assert "2345" not in response.json()["title"] and "ABCDE" not in response.json()["title"]
+    found = await api.post("/search", json={"query": "fee receipt"})
+    names = [r["filename"] for r in found.json()["results"]]
+    assert names and all("2345 6789" not in n and "ABCDE1234F" not in n for n in names)
+    assert any("[AADHAAR_NUMBER]" in n for n in names)

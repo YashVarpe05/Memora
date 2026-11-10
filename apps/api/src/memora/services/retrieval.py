@@ -43,6 +43,14 @@ MIN_SIMILARITY_UNCALIBRATED = 0.35
 MIN_IMAGE_SIMILARITY_UNCALIBRATED = 0.25
 
 
+def weak_evidence_floor(settings) -> float:
+    """The weak-evidence floor for the configured embedder. Search and chat share it, so
+    one cannot refuse while the other answers from the same evidence."""
+    if settings.embedding_provider == "local":
+        return settings.local_min_similarity
+    return MIN_SIMILARITY_UNCALIBRATED
+
+
 def has_weak_evidence(
     similarities: list[float], minimum: float = MIN_SIMILARITY_UNCALIBRATED
 ) -> bool:

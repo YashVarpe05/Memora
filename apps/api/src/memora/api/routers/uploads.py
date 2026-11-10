@@ -40,7 +40,7 @@ from memora.services.image_embedding import (
     ImageEmbeddingUnavailable,
     build_image_embedder,
 )
-from memora.services.masking import mask_all
+from memora.services.masking import mask_all, mask_name
 from memora.services.ocr import OcrClient, OcrUnavailable, build_ocr_client
 from memora.services.parsers.chat import UnparseableChatExport
 from memora.services.storage import BlobStore, build_blob_store, make_thumbnail
@@ -113,7 +113,7 @@ async def upload_document(
     device_path: DevicePath = None,
 ) -> UploadResponse:
     data = await file.read(MAX_BYTES + 1)
-    filename = (file.filename or "upload")[:512]
+    filename = mask_name((file.filename or "upload")[:512])
     if device_path is not None and (not device_path or len(device_path) > 1024):
         raise HTTPException(422, 'Device path must contain 1–1024 characters.')
 

@@ -29,7 +29,7 @@ export function SearchStatus({ route }: { route: string }) {
     let active = false;
     setMessage(null);
     const refresh = async () => {
-      if (active || controller.signal.aborted) return;
+      if (active || controller.signal.aborted || document.hidden) return;
       active = true;
       const connection = pairedServer();
       try {

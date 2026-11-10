@@ -61,6 +61,7 @@ export function useIndexController() {
       return current?.token === connection?.token && current?.url === connection?.url;
     };
     const paths: string[] = [];
+    let flush: () => Promise<void> = async () => undefined;
     let failed = false;
     try {
       const identity = await apiFetch('/api/device/identity');
@@ -68,6 +69,16 @@ export function useIndexController() {
       const { device_id } = await identity.json() as { device_id: string };
       const key = `files:${pairedServer()!.url}:${device_id}`;
       const known = await readState<Record<string, SavedFile>>(key) ?? {};
+      // Rewriting the whole map after every file made a long scan quadratic. Save every 25
+      // files or 5 seconds, and flush whatever is left however the scan ends; a lost write
+      // only means a file is sent again, and the server deduplicates by hash.
+      let unsaved = 0;
+      let lastSave = Date.now();
+      flush = async () => { if (unsaved) { unsaved = 0; lastSave = Date.now(); await writeState(key, known); } };
+      const save = async () => {
+        unsaved += 1;
+        if (unsaved >= 25 || Date.now() - lastSave > 5000) await flush();
+      };
       // Enumerate metadata each time. Timestamp watermarks can permanently lose failed
       // files, backdated copies, or files modified within the same timestamp second.
       for await (const file of discovery.current.scan({ limit: Number.MAX_SAFE_INTEGER })) {
@@ -91,7 +102,7 @@ export function useIndexController() {
               // A photo with no text is normal, not a failure. Remember it so the next scan
               // does not read it again.
               known[file.path] = { fingerprint, job: indexed === 'no-text' ? 'no-text' : indexed.memory_id };
-              await writeState(key, known);
+              await save();
               setProgress(p => indexed === 'no-text'
                 ? { ...p, known: p.known + 1 } : { ...p, queued: p.queued + 1 });
               continue;
@@ -112,7 +123,7 @@ export function useIndexController() {
           const job = await response.json() as Job;
           known[file.path] = { fingerprint, job: job.id };
           // Only acknowledge after the server durably accepts the bytes and job.
-          await writeState(key, known);
+          await save();
           setProgress(p => ({ ...p, queued: p.queued + 1 }));
         } catch (err) {
           failed = true;
@@ -144,7 +155,11 @@ export function useIndexController() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Indexing interrupted. Rescan to continue.');
       setPhase('error');
-    } finally { active.current = false; void awake?.release().catch(() => undefined); }
+    } finally {
+      await flush().catch(() => undefined);
+      active.current = false;
+      void awake?.release().catch(() => undefined);
+    }
   }
 
   async function choose() {

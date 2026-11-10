@@ -22,7 +22,7 @@ from memora.services.chunking import Block, TokenCounter, chunk_blocks
 from memora.services.document_dates import document_date
 from memora.services.document_type import classify
 from memora.services.embedding import Embedder, embedding_fingerprint
-from memora.services.masking import mask_all
+from memora.services.masking import mask_all, mask_name
 
 
 class NoTextError(ValueError):
@@ -95,6 +95,7 @@ async def ingest_device_text(
     if not blocks:
         raise NoTextError("No text was found in this document.")
 
+    filename = mask_name(filename)
     title = Path(filename).stem or filename
     head = " ".join(b.text for b in blocks)[:1500]
     date = document_date(head)

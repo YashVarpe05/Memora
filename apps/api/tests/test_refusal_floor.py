@@ -38,3 +38,12 @@ def test_gemini_results_keep_the_score_rule():
     assert is_uncertain(local=False, in_lexical=False, type_match=False, raw_score=0.45) is True
     assert is_uncertain(local=False, in_lexical=False, type_match=False, raw_score=0.6) is False
     assert is_uncertain(local=False, in_lexical=True, type_match=False, raw_score=0.1) is False
+
+
+def test_search_and_chat_share_one_floor_per_embedder() -> None:
+    from memora.services.retrieval import weak_evidence_floor
+
+    local = Settings(embedding_provider="local", local_min_similarity=0.81)
+    gemini = Settings(embedding_provider="gemini")
+    assert weak_evidence_floor(local) == 0.81
+    assert weak_evidence_floor(gemini) == MIN_SIMILARITY_UNCALIBRATED
