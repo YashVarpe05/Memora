@@ -79,6 +79,43 @@ def test_revoke_unpairs_everything(pairings):
     assert pairings.device_count == 0
 
 
+def test_revoking_one_device_leaves_the_others_paired(pairings):
+    first = pairings.claim(pairings.start().code)
+    second = pairings.claim(pairings.start().code)
+    first_id = pairings.identity(first)
+
+    assert pairings.revoke(first_id) is True
+
+    assert not pairings.is_paired(first)
+    assert pairings.is_paired(second)
+    assert pairings.device_count == 1
+    assert pairings.identities() == [pairings.identity(second)]
+
+
+def test_revoking_an_unknown_device_changes_nothing(pairings):
+    from uuid import uuid4
+
+    token = pairings.claim(pairings.start().code)
+    assert pairings.revoke(uuid4()) is False
+    assert pairings.is_paired(token)
+
+
+async def test_the_network_cannot_list_or_revoke_a_single_device():
+    from fastapi import HTTPException
+
+    from memora.api.routers.pairing import require_local_operator, router
+    from memora.config import Settings
+
+    paths = {route.path for route in router.routes}
+    assert {"/pair/devices", "/pair/revoke/{device_id}"} <= paths
+    with pytest.raises(HTTPException) as raised:
+        await require_local_operator(_request_from("10.29.51.7"), Settings(require_pairing=True))
+    assert raised.value.status_code == 403
+    for route in router.routes:
+        if route.path in ("/pair/devices", "/pair/revoke/{device_id}"):
+            assert any(d.call is require_local_operator for d in route.dependant.dependencies)
+
+
 def test_showing_a_second_qr_does_not_break_the_first(pairings):
     """Two codes outstanding is normal - the user taps the button twice. Invalidating
     the first would make the visible QR silently stop working."""

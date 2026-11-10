@@ -167,6 +167,28 @@ async def pairing_status(settings: SettingsDep, pairings: StoreDep) -> PairingSt
     )
 
 
+class PairedDevices(BaseModel):
+    devices: list[UUID]
+
+
+@router.get("/pair/devices", response_model=PairedDevices, dependencies=LocalOnly)
+async def paired_devices(pairings: StoreDep) -> PairedDevices:
+    """Library identities of paired devices, so one can be revoked by id."""
+    return PairedDevices(devices=pairings.identities())
+
+
+@router.post("/pair/revoke/{device_id}", response_model=PairingStatus, dependencies=LocalOnly)
+async def revoke_device(
+    device_id: UUID, settings: SettingsDep, pairings: StoreDep
+) -> PairingStatus:
+    """Unpair one device. 404 for an id that is not paired, so a typo is not a success."""
+    if not pairings.revoke(device_id):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "No paired device has that id.")
+    return PairingStatus(
+        devices_paired=pairings.device_count, pairing_required=settings.require_pairing
+    )
+
+
 @router.post("/pair/revoke", response_model=PairingStatus, dependencies=LocalOnly)
 async def revoke_pairings(settings: SettingsDep, pairings: StoreDep) -> PairingStatus:
     """Unpair every device. Loopback only, so a phone on the hotspot cannot unpair the

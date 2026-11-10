@@ -157,6 +157,22 @@
         "title": "DevicePageIn",
         "type": "object"
       },
+      "DevicePaths": {
+        "properties": {
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Paths",
+            "type": "array"
+          }
+        },
+        "required": [
+          "paths"
+        ],
+        "title": "DevicePaths",
+        "type": "object"
+      },
       "DeviceToken": {
         "properties": {
           "device_token": {
@@ -337,6 +353,23 @@
           "jobs"
         ],
         "title": "JobsResponse",
+        "type": "object"
+      },
+      "PairedDevices": {
+        "properties": {
+          "devices": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Devices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "devices"
+        ],
+        "title": "PairedDevices",
         "type": "object"
       },
       "PairingClaim": {
@@ -1399,6 +1432,50 @@
         ]
       }
     },
+    "/memories/{memory_id}/device-paths": {
+      "get": {
+        "description": "Where the device that indexed this document keeps it, so that device can open it.\n\nScoped to the caller's own library, so a path is only ever returned to the device that\nreported it. Empty for a document that was uploaded rather than found on a device.",
+        "operationId": "get_device_paths_memories__memory_id__device_paths_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "memory_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Memory Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DevicePaths"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Device Paths",
+        "tags": [
+          "files"
+        ]
+      }
+    },
     "/memories/{memory_id}/file": {
       "get": {
         "operationId": "get_file_memories__memory_id__file_get",
@@ -1572,6 +1649,28 @@
         ]
       }
     },
+    "/pair/devices": {
+      "get": {
+        "description": "Library identities of paired devices, so one can be revoked by id.",
+        "operationId": "paired_devices_pair_devices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairedDevices"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Paired Devices",
+        "tags": [
+          "pairing"
+        ]
+      }
+    },
     "/pair/revoke": {
       "post": {
         "description": "Unpair every device. Loopback only, so a phone on the hotspot cannot unpair the\nowner's devices - which would be a denial of service against the demo.",
@@ -1589,6 +1688,50 @@
           }
         },
         "summary": "Revoke Pairings",
+        "tags": [
+          "pairing"
+        ]
+      }
+    },
+    "/pair/revoke/{device_id}": {
+      "post": {
+        "description": "Unpair one device. 404 for an id that is not paired, so a typo is not a success.",
+        "operationId": "revoke_device_pair_revoke__device_id__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "device_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Device Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PairingStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Revoke Device",
         "tags": [
           "pairing"
         ]

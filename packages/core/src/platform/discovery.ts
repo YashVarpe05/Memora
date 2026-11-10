@@ -89,3 +89,20 @@ export const DEFAULT_SCAN: Required<Pick<ScanOptions, 'limit' | 'order' | 'inclu
     include: ['image/', 'application/pdf'],
     maxBytes: 25 * 1024 * 1024,
   };
+
+/** Text a device read from one of its own files. The file itself is not part of this. */
+export interface ExtractedText {
+  /** SHA-256 of the file's bytes, hex. Identifies the document without sending it. */
+  contentHash: string;
+  byteSize: number;
+  pages: { number: number; text: string }[];
+  engine: string;
+}
+
+/**
+ * Reading a file on the device. Resolves `null` for a type it cannot read, so the caller
+ * can decide to upload instead; rejects when it can read the type but failed to.
+ */
+export interface TextExtractor {
+  extract(path: string, mimeType: string): Promise<ExtractedText | null>;
+}

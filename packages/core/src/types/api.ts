@@ -204,6 +204,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/memories/{memory_id}/device-paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Device Paths
+         * @description Where the device that indexed this document keeps it, so that device can open it.
+         *
+         *     Scoped to the caller's own library, so a path is only ever returned to the device that
+         *     reported it. Empty for a document that was uploaded rather than found on a device.
+         */
+        get: operations["get_device_paths_memories__memory_id__device_paths_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/memories/{memory_id}/file": {
         parameters: {
             query?: never;
@@ -272,6 +295,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pair/devices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Paired Devices
+         * @description Library identities of paired devices, so one can be revoked by id.
+         */
+        get: operations["paired_devices_pair_devices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pair/revoke": {
         parameters: {
             query?: never;
@@ -287,6 +330,26 @@ export interface paths {
          *     owner's devices - which would be a denial of service against the demo.
          */
         post: operations["revoke_pairings_pair_revoke_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/pair/revoke/{device_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke Device
+         * @description Unpair one device. 404 for an id that is not paired, so a typo is not a success.
+         */
+        post: operations["revoke_device_pair_revoke__device_id__post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -419,6 +482,11 @@ export interface components {
             /** Text */
             text: string;
         };
+        /** DevicePaths */
+        DevicePaths: {
+            /** Paths */
+            paths: string[];
+        };
         /** DeviceToken */
         DeviceToken: {
             /** Device Token */
@@ -485,6 +553,11 @@ export interface components {
             };
             /** Jobs */
             jobs: components["schemas"]["JobResponse"][];
+        };
+        /** PairedDevices */
+        PairedDevices: {
+            /** Devices */
+            devices: string[];
         };
         /** PairingClaim */
         PairingClaim: {
@@ -1075,6 +1148,37 @@ export interface operations {
             };
         };
     };
+    get_device_paths_memories__memory_id__device_paths_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                memory_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DevicePaths"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_file_memories__memory_id__file_get: {
         parameters: {
             query?: never;
@@ -1202,6 +1306,26 @@ export interface operations {
             };
         };
     };
+    paired_devices_pair_devices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairedDevices"];
+                };
+            };
+        };
+    };
     revoke_pairings_pair_revoke_post: {
         parameters: {
             query?: never;
@@ -1218,6 +1342,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PairingStatus"];
+                };
+            };
+        };
+    };
+    revoke_device_pair_revoke__device_id__post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                device_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PairingStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

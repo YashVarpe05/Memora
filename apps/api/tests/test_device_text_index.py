@@ -70,3 +70,16 @@ async def test_oversized_extracted_text_is_refused(api):
     page = {"number": 1, "text": "x" * 200_000}
     body = {**_payload("seed"), "pages": [{**page, "number": n} for n in range(1, 4)]}
     assert (await api.post("/index/text-jobs", json=body)).status_code == 413
+
+
+async def test_the_device_can_ask_where_it_keeps_a_document(api):
+    created = await api.post("/index/text-jobs", json=_payload("Rent agreement for the flat."))
+    memory_id = created.json()["memory_id"]
+    found = await api.get(f"/memories/{memory_id}/device-paths")
+    assert found.status_code == 200
+    assert found.json() == {"paths": ["phone/Download/a.pdf"]}
+
+
+async def test_device_paths_of_an_unknown_document_are_not_found(api):
+    response = await api.get(f"/memories/{uuid.uuid4()}/device-paths")
+    assert response.status_code == 404

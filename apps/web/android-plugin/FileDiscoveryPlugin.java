@@ -319,6 +319,32 @@ public class FileDiscoveryPlugin extends Plugin {
     }
 
     /** Bytes for one file, base64 for the bridge. Called only after filtering and dedup. */
+    /**
+     * Hand a file to the system viewer. The file never goes through the server: this is how
+     * a search result for a document that lives only on this phone is opened.
+     */
+    @PluginMethod
+    public void open(PluginCall call) {
+        String path = call.getString("path");
+        if (path == null) {
+            call.reject("path is required");
+            return;
+        }
+        Uri uri = Uri.parse(path);
+        String type = getContext().getContentResolver().getType(uri);
+        Intent intent = new Intent(Intent.ACTION_VIEW);
+        intent.setDataAndType(uri, type != null ? type : "*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            getContext().startActivity(intent);
+            call.resolve();
+        } catch (android.content.ActivityNotFoundException error) {
+            call.reject("no app on this phone can open this file");
+        } catch (Exception error) {
+            call.reject("open failed: " + error.getMessage(), error);
+        }
+    }
+
     @PluginMethod
     public void read(PluginCall call) {
         String path = call.getString("path");

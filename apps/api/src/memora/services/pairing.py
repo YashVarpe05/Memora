@@ -71,6 +71,12 @@ class PairingStore:
     def identities(self) -> list[UUID]:
         return [UUID(row[0]) for row in self.db.execute("SELECT id FROM devices")]
 
+    def revoke(self, device_id: UUID) -> bool:
+        """Unpair one device. Its library stays in the database; only its token dies."""
+        with self.db:
+            cursor = self.db.execute("DELETE FROM devices WHERE id = ?", (str(device_id),))
+        return cursor.rowcount > 0
+
     def is_paired(self, token: str | None) -> bool:
         return self.identity(token) is not None
 

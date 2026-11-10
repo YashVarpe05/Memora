@@ -9,8 +9,10 @@ export { Routes } from './router.js';
 
 export type {
   DiscoveredFile,
+  ExtractedText,
   FileDiscovery,
   PermissionState,
   ScanOptions,
+  TextExtractor,
 } from './discovery.js';
 export { DEFAULT_SCAN } from './discovery.js';

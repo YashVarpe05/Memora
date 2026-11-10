@@ -99,7 +99,7 @@ async def readiness(session: SessionDep, settings: SettingsDep) -> ReadinessResp
         search_mode="lexical" if settings.embedding_provider == "lexical" else "hybrid",
         degraded_message=(
             "Word and document-type search is enabled. Meaning-based and visual search "
-            "are disabled in this local trial."
+            "are disabled until an embedding provider is configured."
             if settings.embedding_provider == "lexical" else describe(stage1)
         ),
     )

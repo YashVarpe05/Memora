@@ -10,9 +10,10 @@ export function ScanPage() {
     <p className="text-sm text-ink-muted">Search by contents, even when filenames are just numbers.
       PDFs, photos, screenshots, text and Word documents are supported, up to 25 MB each.</p>
     <div className="rounded-card border border-line bg-surface p-4 text-sm">
-      Selected documents are sent to your configured Memora server for storage and text recognition.
-      Extracted text and search queries may be sent to the embedding provider. Aadhaar and PAN
-      masking applies before embedding; the original uploaded file is not masked.
+      {isNative()
+        ? 'This phone reads PDFs, photos and text files itself and sends only the extracted text, with Aadhaar and PAN numbers masked, to your Memora server. The files stay on the phone. Word, email and calendar files cannot be read on the phone, so those are uploaded as files.'
+        : 'Selected documents are sent to your configured Memora server for storage and text recognition. Aadhaar and PAN masking applies before embedding; the original uploaded file is not masked.'}
+      {' '}Extracted text and search queries may be sent to the embedding provider.
       This device has its own library. Other devices cannot search it.
     </div>
     <p className="text-sm text-ink-muted">{isNative()

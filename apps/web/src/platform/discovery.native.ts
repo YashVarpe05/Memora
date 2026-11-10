@@ -34,6 +34,7 @@ interface FileDiscoveryNative {
   count(options: { since: number; maxBytes: number }): Promise<{ total: number }>;
   stamp(): Promise<{ value: string }>;
   read(options: { path: string }): Promise<{ data: string }>;
+  open(options: { path: string }): Promise<void>;
 }
 
 const Native = registerPlugin<FileDiscoveryNative>('FileDiscovery');
@@ -106,6 +107,11 @@ export class AndroidFileDiscovery implements FileDiscovery {
       maxBytes: options?.maxBytes ?? DEFAULT_SCAN.maxBytes,
     });
     return total;
+  }
+
+  /** Open a file in the system viewer, without involving the server. */
+  async open(path: string): Promise<void> {
+    await Native.open({ path });
   }
 
   async read(path: string): Promise<Uint8Array> {

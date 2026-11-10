@@ -55,6 +55,29 @@ Not built: the ML Kit plugin and the phone client that calls it; the Android bui
 install are unverified on a device. Indexing is synchronous in the request (no job row), so
 the phone retries on failure.
 
+### Step 2, client half: BUILT AND RUN ON AN EMULATOR 2026-11-10 (not a physical phone)
+Android emulator (API 36, x86_64, Google APIs), debug APK, trial server over `adb reverse`.
+- `TextExtractionPlugin.java` (ML Kit Latin + Devanagari, bundled) hashes the file, OCRs
+  images and PDF pages (PdfRenderer, 40-page cap), reads text files; other types are rejected
+  as "unsupported" and fall back to the existing upload. `packages/core/src/masking.ts` is a
+  port of `masking.py` pinned to it by 10 parity tests; the phone masks before sending.
+- Pairing by typed address and code, "Allow online indexing & scan": **6 checked, 6 sent, 0
+  need attention**. Database check: 0 index jobs and no new blobs for that library, i.e. no
+  file bytes reached the server. All 6 chunks have meaning vectors.
+- On-device OCR results: image-only PDF read correctly (type: receipt); digital PDF read;
+  Hindi "आधार कार्ड" card read, its Verhoeff-valid number masked to `[AADHAAR_NUMBER]` before
+  sending (type: aadhaar); Marathi marksheet read (type: marksheet), plus a little Latin-model
+  noise ("yorufachi / cahart 88") from running both recognisers on Devanagari; text file's PAN
+  masked to `[PAN_NUMBER]`.
+- Search in the app: "proof of my address" ranked the electricity bill photo first (Aadhaar
+  second). Opening a result shows the image read from the phone, "This file is stored on this
+  phone", and "Open on this phone", which handed the file to Google Photos. New endpoint
+  `GET /memories/{id}/device-paths` (scoped to the caller's library) supports it.
+- Not verified: a physical phone (real storage permission dialogs, camera QR pairing, real
+  photo OCR quality, battery, thousands of files), opening a PDF through the system viewer,
+  background scanning while the app is closed (no WorkManager), and fallback upload of
+  Word/email files on the phone.
+
 ## Step 3 - Web on-device extraction (optional, after step 2)
 Browser WASM OCR (tesseract.js) so a laptop that only hosts the UI also sends text only.
 Slower and heavier than the server's Tesseract; do it only if hosting the server is the

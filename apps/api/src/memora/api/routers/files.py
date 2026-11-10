@@ -12,6 +12,7 @@ from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from pydantic import BaseModel
 
 from memora.api.deps import CurrentUserDep, DbDep
 from memora.repositories.memory import MemoryRepository
@@ -33,6 +34,26 @@ BlobStoreDep = Annotated[BlobStore, Depends(get_blob_store)]
 def safe_filename(name: str) -> str:
     cleaned = _UNSAFE_FILENAME.sub("_", name).strip() or "download"
     return cleaned[:200]
+
+
+class DevicePaths(BaseModel):
+    paths: list[str]
+
+
+@router.get("/memories/{memory_id}/device-paths", response_model=DevicePaths)
+async def get_device_paths(memory_id: UUID, session: DbDep, user_id: CurrentUserDep) -> DevicePaths:
+    """Where the device that indexed this document keeps it, so that device can open it.
+
+    Scoped to the caller's own library, so a path is only ever returned to the device that
+    reported it. Empty for a document that was uploaded rather than found on a device.
+    """
+    memory = await MemoryRepository(session, user_id).get(memory_id)
+    if memory is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    paths = list(memory.device_paths or [])
+    if memory.device_path and memory.device_path not in paths:
+        paths.insert(0, memory.device_path)
+    return DevicePaths(paths=paths)
 
 
 @router.get("/memories/{memory_id}/file")

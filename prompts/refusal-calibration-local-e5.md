@@ -71,6 +71,16 @@ answered: their words ("registration", "tax", "receipt", "certificate") match ge
 in the library. Weighting rare words above common ones is the next change and needs the
 owner's real queries to tune; it is not built.
 
+## Rare-word weighting: measured, rejected (2026-11-10)
+Tried summing each matched query word's IDF over the 16-document pack and refusing below a
+cutoff. No cutoff separates the groups: absent "GST registration certificate" and "property
+tax receipt" both score 4.34, the same as answerable "light bill" and "fee receipt";
+absent "vehicle registration RC book" (2.43) ties several answerable one-word queries. A
+word that is rare is still the wrong document ("tax" appears in the PAN card). Not built.
+What would help is judging the whole query against the document (a cross-encoder or an
+LLM relevance check), which is out of scope for now. The honest limit today: with the
+local model, some absent queries whose words appear elsewhere in the library are answered.
+
 ## Data this needs (blocked on the owner)
 - The personal gold corpus is not on this machine (`data/corpus` is empty), so the gold
   eval cannot run. Calibration needs the owner's 20 real queries (`context/my-queries.txt`,

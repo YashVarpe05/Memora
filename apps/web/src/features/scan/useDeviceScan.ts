@@ -1,8 +1,10 @@
 import { createContext, useContext, useEffect, useRef, useState } from 'react';
-import type { DiscoveredFile, FileDiscovery } from '@memora/core';
+import type { DiscoveredFile, FileDiscovery, TextExtractor } from '@memora/core';
 import type { components } from '@memora/core/types/api';
 import { AndroidFileDiscovery } from '@/platform/discovery.native';
 import { BrowserFileDiscovery } from '@/platform/discovery.browser';
+import { AndroidTextExtractor } from '@/platform/textExtraction.native';
+import { indexOnDevice } from './deviceText';
 import { apiFetch, isNative, pairedServer } from '@/platform/api';
 import { readState, writeState } from '@/platform/indexStore';
 
@@ -13,6 +15,8 @@ export type ScanMode = 'quick' | 'full';
 
 export function useIndexController() {
   const discovery = useRef<FileDiscovery>(isNative() ? new AndroidFileDiscovery() : new BrowserFileDiscovery());
+  // Android only. The browser cannot OCR a folder it was given, so it keeps uploading.
+  const extractor = useRef<TextExtractor | null>(isNative() ? new AndroidTextExtractor() : null);
   const [phase, setPhase] = useState('idle');
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState({ seen: 0, queued: 0, known: 0, failed: 0 });
@@ -75,6 +79,17 @@ export function useIndexController() {
         try {
           const problem = unsupported(file);
           if (problem) throw new Error(problem);
+          // The phone reads what it can and sends only masked text. A type it cannot read
+          // falls through to the upload below; a read that fails does not.
+          if (extractor.current) {
+            const indexed = await indexOnDevice(extractor.current, file);
+            if (indexed) {
+              known[file.path] = { fingerprint, job: indexed.memory_id };
+              await writeState(key, known);
+              setProgress(p => ({ ...p, queued: p.queued + 1 }));
+              continue;
+            }
+          }
           const bytes = await discovery.current.read(file.path);
           if (!sameConnection()) throw new Error('Connection changed. Reconnect and rescan to continue.');
           if (stop.current) break;

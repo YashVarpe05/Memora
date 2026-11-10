@@ -1,6 +1,7 @@
 import { Download, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { apiFetch } from '@/platform/api';
+import { apiFetch, isNative } from '@/platform/api';
+import { AndroidFileDiscovery } from '@/platform/discovery.native';
 import { useAuthedMedia } from '@/platform/useAuthedMedia';
 import type { SearchResult } from './useSearch';
 
@@ -14,6 +15,39 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
   const isPdf = result.source_type === 'pdf';
   const isImage = result.source_type === 'image';
   const media = useAuthedMedia(`/api${result.file_url}`);
+  // A document found on this phone is indexed from text, so the server holds no file. The
+  // phone that found it still has it and opens it itself.
+  const [localPath, setLocalPath] = useState<string | null>(null);
+  const [localSrc, setLocalSrc] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const serverFileMissing = media.failed || error !== null;
+  useEffect(() => {
+    if (!isNative() || !serverFileMissing) return;
+    let cancelled = false;
+    void apiFetch(`/api/memories/${result.memory_id}/device-paths`).then(async response => {
+      if (!response.ok) return;
+      const { paths } = await response.json() as { paths: string[] };
+      if (!cancelled) setLocalPath(paths.find(path => path.startsWith('content://')) ?? null);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [serverFileMissing, result.memory_id]);
+  useEffect(() => {
+    if (!localPath || !isImage) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    void new AndroidFileDiscovery().read(localPath).then(bytes => {
+      if (cancelled) return;
+      objectUrl = URL.createObjectURL(new Blob([bytes as BlobPart]));
+      setLocalSrc(objectUrl);
+    }).catch(() => setLocalError('This file could not be read on this phone.'));
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [localPath, isImage]);
+  async function openLocal() {
+    if (!localPath) return;
+    setLocalError(null);
+    try { await new AndroidFileDiscovery().open(localPath); }
+    catch (err) { setLocalError(err instanceof Error ? err.message : 'Could not open this file.'); }
+  }
   useEffect(() => {
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const controls = () => Array.from(dialog.current?.querySelectorAll<HTMLElement>(
@@ -55,7 +89,7 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
       });
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
   }, [isPdf, page, result.memory_id]);
-  const src = isPdf ? preview : media.src;
+  const src = isPdf ? preview : (media.src ?? localSrc);
   return <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label={result.document_label ?? result.title}
     className="fixed inset-0 z-50 flex flex-col bg-canvas">
     <header className="flex shrink-0 items-center gap-2 border-b border-line bg-surface px-3 pt-safe">
@@ -79,9 +113,15 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
     <div tabIndex={0} role="region" aria-label="Document preview" className="min-h-0 flex-1 overflow-auto bg-surface-sunken focus-visible:outline-2 focus-visible:outline-accent">
       {(isPdf || isImage) && src && <img src={src} alt={`${result.document_label ?? result.title}, page ${page}`}
         className="mx-auto max-w-none" style={{ width: `${zoom}%` }} />}
-      {!src && !error && (isPdf || isImage) && <p role="status" className="p-6">Loading preview…</p>}
-      {(error || media.failed) && <p role="alert" className="p-6 text-warn">{error ?? 'File could not be loaded. It may be stored only on the device where it was found.'}</p>}
-      {!isPdf && !isImage && <div className="flex flex-col gap-4 p-6">
+      {!src && !error && !localPath && (isPdf || isImage) && <p role="status" className="p-6">Loading preview…</p>}
+      {(error || media.failed) && !localPath && <p role="alert" className="p-6 text-warn">{error ?? 'File could not be loaded. It may be stored only on the device where it was found.'}</p>}
+      {localPath && <div className="flex flex-col gap-3 p-6">
+        <p className="text-sm">This file is stored on this phone.</p>
+        <button className="min-h-11 self-start rounded bg-accent px-4 text-white" onClick={() => void openLocal()}>Open on this phone</button>
+        {localError && <p role="alert" className="text-sm text-warn">{localError}</p>}
+        {!isImage && <p className="whitespace-pre-wrap text-sm text-ink-muted">{result.snippet}</p>}
+      </div>}
+      {!isPdf && !isImage && !localPath && <div className="flex flex-col gap-4 p-6">
         <p className="whitespace-pre-wrap text-sm">{result.snippet}</p>
         {media.src && <a className="text-accent underline" href={media.src} download={result.filename}>Download and open {result.filename}</a>}
       </div>}
