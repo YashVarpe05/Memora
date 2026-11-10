@@ -22,3 +22,19 @@ def test_nothing_retrieved_is_always_weak() -> None:
 def test_local_floor_is_a_setting_and_sits_above_the_legacy_constant() -> None:
     assert Settings(local_min_similarity=0.9).local_min_similarity == 0.9
     assert Settings().local_min_similarity > MIN_SIMILARITY_UNCALIBRATED
+
+
+def test_local_results_are_uncertain_unless_a_word_or_a_document_type_backs_them():
+    from memora.services.retrieval import is_uncertain
+
+    assert is_uncertain(local=True, in_lexical=False, type_match=False, raw_score=0.85) is True
+    assert is_uncertain(local=True, in_lexical=True, type_match=False, raw_score=0.7) is False
+    assert is_uncertain(local=True, in_lexical=False, type_match=True, raw_score=0.7) is False
+
+
+def test_gemini_results_keep_the_score_rule():
+    from memora.services.retrieval import is_uncertain
+
+    assert is_uncertain(local=False, in_lexical=False, type_match=False, raw_score=0.45) is True
+    assert is_uncertain(local=False, in_lexical=False, type_match=False, raw_score=0.6) is False
+    assert is_uncertain(local=False, in_lexical=True, type_match=False, raw_score=0.1) is False

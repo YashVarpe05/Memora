@@ -46,6 +46,7 @@ from memora.services.retrieval import (
     MIN_SIMILARITY_UNCALIBRATED,
     has_weak_evidence,
     has_weak_image_evidence,
+    is_uncertain,
 )
 from memora.services.search import Boosts, fuse_results, search_documents
 from memora.services.stage1_health import describe, health
@@ -486,7 +487,12 @@ async def search(
                     if r.memory_id in lexical_ids
                     else "Similar meaning or visual appearance — check the preview"
                 ),
-                uncertain=r.memory_id not in lexical_ids and r.raw_score < 0.5,
+                uncertain=is_uncertain(
+                    local=settings.embedding_provider == "local",
+                    in_lexical=r.memory_id in lexical_ids,
+                    type_match=bool(wanted_type and r.document_type == wanted_type),
+                    raw_score=r.raw_score,
+                ),
             )
             for r in ranked
         ],

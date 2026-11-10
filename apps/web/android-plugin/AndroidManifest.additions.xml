@@ -18,9 +18,9 @@
 <!--
   On <application>, add:
 
-    android:usesCleartextTraffic="true"
+    android:networkSecurityConfig="@xml/network_security_config"
 
-  The laptop serves plain HTTP on a hotspot address. This is a LAN between two machines
-  the same person owns - see prompts/capacitor-auto-scan.md section 1 - but it IS
-  cleartext, and the report should say so rather than let "local" imply "encrypted".
+  and copy apps/web/android/app/src/main/res/xml/network_security_config.xml. It refuses
+  plain HTTP except for localhost, 127.0.0.1 and 10.0.2.2 (development over `adb reverse`).
+  A real server must be HTTPS: the device token and the extracted text travel to it.
 -->

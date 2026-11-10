@@ -60,6 +60,19 @@ def has_weak_evidence(
     return max(similarities) < minimum
 
 
+def is_uncertain(*, local: bool, in_lexical: bool, type_match: bool, raw_score: float) -> bool:
+    """Whether a result should be shown as a possible match rather than a confident one.
+
+    E5 cosine scores sit at 0.75-0.9 for everything, so a score floor never fires for the
+    local model; it is judged by evidence instead: no word match and no recognised document
+    type. Measured on a real 1,000-document library, no score or score-spread cutoff
+    separated answerable queries from absent ones. Gemini keeps its score rule.
+    """
+    if local:
+        return not in_lexical and not type_match
+    return not in_lexical and raw_score < 0.5
+
+
 def has_weak_image_evidence(similarities: list[float]) -> bool:
     """The same question asked of the visual index, on its own scale.
 

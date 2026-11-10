@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The device token and the extracted text travel to the server, so plain HTTP is refused
+  everywhere except the loopback and emulator addresses used with `adb reverse` during
+  development. PairPage enforces the same rule in JavaScript; this is the operating-system
+  backstop if that check is ever bypassed.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">localhost</domain>
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+    </domain-config>
+</network-security-config>

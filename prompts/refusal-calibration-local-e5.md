@@ -81,6 +81,23 @@ What would help is judging the whole query against the document (a cross-encoder
 LLM relevance check), which is out of scope for now. The honest limit today: with the
 local model, some absent queries whose words appear elsewhere in the library are answered.
 
+## Real phone library, 1,012 documents (2026-11-11): score cutoffs do not work
+A temporary token (removed afterwards) let the evaluation read the phone's library through the
+API; only types, scores and ranks were printed. 146 documents carry a document type, 866 do not.
+- Type-labelled queries: first labelled hit at rank 1 for 15 of 22 queries, within the top 5
+  for 19 of 22. Misses are semantic-only phrasings ("my school results", "payment
+  confirmation", "id card") and "train ticket" (two unlabelled results above the first Ticket).
+- Absent topics (pet dog, biryani, football, weather, guitar, moon landing, a visa): 0 of 7
+  refused. Their top raw scores were 0.816-0.845; answerable semantic-only queries scored
+  0.822-0.857. The top score, the gap between rank 1 and rank 10 or 30, and the spread of the
+  top 30 all overlap completely (e.g. absent "biryani recipe" gap 0.046, answerable
+  "aadhaar" gap 0.048). **No score-based "nothing found" rule is viable with this model.**
+- Done instead: for the local model a result is flagged "Possible match" unless a query word
+  or a recognised document type backs it, and the search page says "No confident match" when
+  every result is flagged. Honest instead of refusing; a refusal rule would hide real hits.
+- What would work, not built: a cross-encoder reranker or a small local LLM judging whether
+  the top snippets answer the query, both extra model downloads and CPU time per query.
+
 ## Data this needs (blocked on the owner)
 - The personal gold corpus is not on this machine (`data/corpus` is empty), so the gold
   eval cannot run. Calibration needs the owner's 20 real queries (`context/my-queries.txt`,

@@ -132,7 +132,9 @@ apps/web/android/app/src/main/AndroidManifest.xml
 
 and merge in the entries from `apps/web/android-plugin/AndroidManifest.additions.xml` —
 five `<uses-permission>` lines before `<application>`, and
-`android:usesCleartextTraffic="true"` on the `<application>` tag itself.
+`android:networkSecurityConfig="@xml/network_security_config"` on the `<application>` tag itself,
+with `network_security_config.xml` copied to `res/xml/`. It allows plain HTTP only for
+localhost, 127.0.0.1 and 10.0.2.2; any other server must be HTTPS.
 
 > **`MANAGE_EXTERNAL_STORAGE` is restricted on the Play Store** and would block
 > publication. It is used here because this is a sideloaded APK for a demo. The

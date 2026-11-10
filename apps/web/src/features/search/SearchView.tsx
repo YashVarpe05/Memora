@@ -116,6 +116,12 @@ export function SearchView() {
           </div>
         )}
 
+        {search.results.length > 0 && search.results.every(result => result.uncertain) && (
+          <p role="status" className="px-1 text-sm text-warn">
+            No confident match. These are the closest results, and none may be what you meant.
+          </p>
+        )}
+
         {search.results.length > 0 && (
           <ul className="flex flex-col gap-2">
             {search.results.map((result) => (
