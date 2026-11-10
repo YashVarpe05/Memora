@@ -116,9 +116,10 @@ export function SearchView() {
           </div>
         )}
 
-        {search.results.length > 0 && search.results.every(result => result.uncertain) && (
+        {search.results[0]?.uncertain && (
           <p role="status" className="px-1 text-sm text-warn">
-            No confident match. These are the closest results, and none may be what you meant.
+            No confident match. The first result is only the closest in meaning, so it may not be
+            what you meant.
           </p>
         )}
 
