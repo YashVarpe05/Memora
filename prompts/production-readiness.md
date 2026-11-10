@@ -30,6 +30,26 @@ as raw numbers. Accuracy measured on the owner's real documents, not synthetic o
 | P1-4 | Per-device revoke does not exist, only revoke-all | `pairing.py` | add a device id to status and a revoke-one endpoint | small |
 | P2 | Ask tab still mock; refusal accuracy 2/4; no rate limits on the API | README, `main.py` | after P0 | |
 
+## Local rehearsal of `compose.production.yml` (2026-11-10)
+Built and ran the full production stack on this laptop with `MEMORA_DOMAIN=localhost`
+(Caddy's local CA), random throwaway secrets kept outside the repo, then removed it
+(`down -v`).
+- Images: ocr **3.34 GB**, api/worker/migrate 850 MB (one shared image), web 94 MB.
+- Migrations ran clean; `/health/ready` ready, `role: memora_app (rls enforced)`, search mode
+  lexical. HTTP redirects to HTTPS (308); web index 200.
+- Auth gates: unauthenticated search 401; `/pair/start` without the operator secret 403; a
+  pairing code is single-use (second claim 400); the issued token returns a device identity.
+- A PNG uploaded through the proxy was OCRed by the OCR container (minor errors: "Ps" for
+  "Rs") and found by keyword search; authenticated search took about 14 ms.
+- API and token survived a restart of api+worker. Idle memory: api 76 MB, worker 106 MB,
+  db 33 MB, redis 12 MB, ocr 45 MB, web 59 MB.
+- Not verified: a real public domain and certificate, CORS from the APK's origin, uploads near
+  the 25 MB limit through the proxy, backups, resource limits, and meaning search (the image
+  has no torch, so production meaning search needs Gemini or a larger image).
+- Decision for the owner: the OCR image is mostly CPU torch and CLIP weights for visual
+  search. A small VPS may prefer a Tesseract-only OCR image.
+- Cosmetic: `degraded_message` says "in this local trial" even in production.
+
 ## OCR engine
 Research found no clean three-way benchmark on real Hindi scans. Tesseract with the Hindi
 and Marathi traineddata is the best-supported choice; EasyOCR is reported to collapse on
