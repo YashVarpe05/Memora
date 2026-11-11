@@ -78,6 +78,9 @@ class Settings(BaseSettings):
     require_pairing: bool = True
     pairing_store: str = "data/auth/devices.sqlite3"
     operator_secret: str | None = None
+    # Lets a phone built with this secret enroll itself (POST /pair/enroll) without an
+    # invitation code. Unset means the endpoint is off. See prompts/zero-touch-enrollment.md.
+    enrollment_secret: str | None = None
     public_api_url: str | None = None
     # Fast, deterministic query filters by default. Local/hosted model arms remain
     # available for comparison through STAGE1_PROVIDER=local or gemini.

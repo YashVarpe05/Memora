@@ -13,6 +13,9 @@ x-runtime: &runtime
   BLOB_ROOT: /state/blobs
   PAIRING_STORE: /state/auth/devices.sqlite3
   OPERATOR_SECRET: ${OPERATOR_SECRET:?Set OPERATOR_SECRET}
+  # Optional: lets an APK built with the same secret enroll itself. Leave empty to disable.
+  ENROLLMENT_SECRET: ${ENROLLMENT_SECRET:-}
+  HF_HOME: /models
   PUBLIC_API_URL: https://${MEMORA_DOMAIN:?Set MEMORA_DOMAIN}/api
   CORS_ORIGINS: '["https://${MEMORA_DOMAIN}","http://localhost","https://localhost","capacitor://localhost"]'
 services:
@@ -43,6 +46,8 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        WITH_SEMANTIC: ${WITH_SEMANTIC:-0}
     environment:
       <<: *runtime
       MIGRATION_DATABASE_URL: postgresql+asyncpg://memora:${DB_PASSWORD}@db:5432/memora
@@ -53,8 +58,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        WITH_SEMANTIC: ${WITH_SEMANTIC:-0}
     environment: *runtime
-    volumes: [state:/state]
+    volumes: [state:/state, models:/models]
     command: [uvicorn, 'memora.main:app', --host, 0.0.0.0, --port, '8000', --no-access-log, --no-proxy-headers]
     depends_on:
       migrate: {condition: service_completed_successfully}
@@ -63,8 +70,10 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
+      args:
+        WITH_SEMANTIC: ${WITH_SEMANTIC:-0}
     environment: *runtime
-    volumes: [state:/state]
+    volumes: [state:/state, models:/models]
     command: [python, -m, memora.worker]
     depends_on:
       migrate: {condition: service_completed_successfully}
@@ -82,5 +91,6 @@ services:
 volumes:
   database:
   state:
+  models:
   certificates:
   caddy_config:

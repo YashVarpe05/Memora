@@ -1,11 +1,12 @@
 import { Camera, Clock, FileText, Mic } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 
 import { Routes } from '@memora/core';
 
 import { Button } from '@/components/ui/button';
 import { ChatView } from '@/features/chat/ChatView';
-import { pairedServer } from '@/platform/api';
+import { apiFetch, pairedServer } from '@/platform/api';
 import { useNavigator } from '@/platform/navigator';
 
 export function AskPage() {
@@ -68,36 +69,51 @@ export function TimelinePage() {
 
 export function SettingsPage() {
   const paired = pairedServer();
+  const [documents, setDocuments] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (!paired) return;
+    let live = true;
+    void apiFetch('/api/index/coverage')
+      .then(async (response) => (response.ok ? await response.json() as { available_documents: number } : null))
+      .then((body) => { if (live && body) setDocuments(body.available_documents); })
+      .catch(() => undefined);
+    return () => { live = false; };
+  }, [paired?.url]);
+
+  const host = paired ? new URL(paired.url).host : null;
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-5 px-4 py-8">
       <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
 
-      {/*
-        A permanent, manual way to reach pairing.
-        The automatic paths are good now - a 401 clears the pairing and the guard
-        redirects - but this app has already stranded a user once with a token the
-        laptop had forgotten, no redirect, and no link to the scanner anywhere. An
-        escape hatch that does not depend on anything working is worth one link.
-      */}
+      <div className="flex flex-col gap-2 rounded-card border border-line bg-surface p-3">
+        <span className="text-sm font-medium text-ink">This device</span>
+        <span className="text-sm text-ink">
+          {documents === null ? (paired ? 'Checking your library…' : 'Not connected.')
+            : `${documents} ${documents === 1 ? 'document is' : 'documents are'} searchable here.`}
+        </span>
+        <span className="text-xs text-ink-muted">Each device keeps its own library. Other devices cannot search this one.</span>
+        <Link to={Routes.Scan} className="mt-1 self-start text-sm font-medium text-accent underline">
+          Index files again
+        </Link>
+      </div>
+
+      {/* A permanent, manual way to reach pairing, for when the automatic path cannot work. */}
       <div className="flex flex-col gap-2 rounded-card border border-line bg-surface p-3">
         <span className="text-sm font-medium text-ink">Connection</span>
         <span className="text-xs text-ink-muted">
-          {paired ? `Paired with ${paired.url}` : 'Not connected to a computer.'}
+          {host ? `Connected to ${host}.` : 'Not connected to a Memora server.'}
+        </span>
+        <span className="text-xs text-ink-muted">
+          Disconnecting does not erase stored documents. Reinstalling the app starts a new, empty library.
         </span>
         <Link
           to={Routes.Pair}
           className="mt-1 self-start text-sm font-medium text-accent underline"
         >
-          {paired ? 'Reconnect or disconnect' : 'Connect to your computer'}
+          {paired ? 'Reconnect or disconnect' : 'Connect to your server'}
         </Link>
       </div>
-
-      <Placeholder
-        title="More settings"
-        body="Connected accounts, export, and account deletion - which removes rows, vectors and files, demonstrably."
-        phase="phase 6"
-      />
     </div>
   );
 }

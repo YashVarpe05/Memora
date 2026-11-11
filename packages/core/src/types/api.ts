@@ -315,6 +315,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/pair/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Enroll Device
+         * @description A phone built with the enrollment secret joins without an invitation.
+         *
+         *     The secret lives inside the APK, so anyone holding the APK can enroll an empty library of
+         *     their own; they still cannot read another device's library. Off unless ENROLLMENT_SECRET
+         *     is set. A wrong secret gets one generic answer, and repeated guessing locks the endpoint.
+         */
+        post: operations["enroll_device_pair_enroll_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/pair/revoke": {
         parameters: {
             query?: never;
@@ -510,6 +534,11 @@ export interface components {
             semantic_documents: number;
             /** Text Documents */
             text_documents: number;
+        };
+        /** EnrollRequest */
+        EnrollRequest: {
+            /** Secret */
+            secret: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -1322,6 +1351,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PairedDevices"];
+                };
+            };
+        };
+    };
+    enroll_device_pair_enroll_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EnrollRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceToken"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

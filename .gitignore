@@ -88,3 +88,9 @@ data/test-reports/
 apps/web/test-results/
 apps/web/playwright-report/
 backups/
+
+# Personal APKs carry an enrollment secret, and signing keys must never be committed.
+builds/
+*.keystore
+*.jks
+.env.production

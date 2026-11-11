@@ -46,3 +46,69 @@
 32. something about a pet dog [none]
 33. biryani recipe [none]
 34. मेरा पासपोर्ट [none]
+
+## ============================================================================
+## QUERIES RUN ON THE OWNER'S REAL LIBRARY (1,012 documents on the phone), 2026-11-11
+## Written by Claude on the owner's instruction ("it's totally on you"). The expected value is
+## the document TYPE the app assigns, not a filename, so the set can be re-run on any library
+## that holds those types. Results: prompts/refusal-calibration-local-e5.md and prompts/reranker.md.
+## Full-pipeline result (reranker off): English first labelled hit at rank 1 for 14 of 20,
+## Hindi/Marathi/Hinglish for 13 of 23.
+## ============================================================================
+
+## English (query -> expected type)
+my aadhaar card -> aadhaar
+aadhaar -> aadhaar
+mera aadhaar -> aadhaar
+that govt id with my photo -> aadhaar
+marksheet -> marksheet
+my school results -> marksheet
+resume -> resume
+my cv -> resume
+the pdf with my work experience -> resume
+train ticket -> ticket
+ticket -> ticket
+boarding pass -> ticket
+fee receipt -> receipt
+receipt -> receipt
+payment confirmation -> receipt
+invoice -> invoice
+bill for my purchase -> invoice
+certificate -> certificate
+my course certificate -> certificate
+offer letter -> letter
+
+## Hindi, Marathi and Hinglish
+आधार कार्ड -> aadhaar
+मेरा आधार -> aadhaar
+माझे आधार कार्ड -> aadhaar
+aadhaar card ki photo -> aadhaar
+पहचान पत्र -> aadhaar
+गुणपत्रिका -> marksheet
+माझी गुणपत्रिका -> marksheet
+अंकतालिका -> marksheet
+10वीं का रिजल्ट -> marksheet
+marksheet dikhao -> marksheet
+मेरा रिज्यूमे -> resume
+बायोडाटा -> resume
+माझा सीव्ही -> resume
+mera cv -> resume
+रेल का टिकट -> ticket
+ट्रेन टिकट -> ticket
+तिकीट -> ticket
+फीस की रसीद -> receipt
+पावती -> receipt
+भुगतान की रसीद -> receipt
+प्रमाणपत्र -> certificate
+माझे सर्टिफिकेट -> certificate
+कोर्स का सर्टिफिकेट -> certificate
+
+## Topics the library has no document for (the right answer is "nothing found", or at least a
+## "Possible match" flag; today the app flags but cannot refuse them)
+something about a pet dog
+biryani recipe
+football match score
+weather forecast tomorrow
+guitar lessons
+moon landing history
+visa for Canada

@@ -241,6 +241,21 @@
         "title": "EmbeddingCoverageResponse",
         "type": "object"
       },
+      "EnrollRequest": {
+        "properties": {
+          "secret": {
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": [
+          "secret"
+        ],
+        "title": "EnrollRequest",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1666,6 +1681,48 @@
           }
         },
         "summary": "Paired Devices",
+        "tags": [
+          "pairing"
+        ]
+      }
+    },
+    "/pair/enroll": {
+      "post": {
+        "description": "A phone built with the enrollment secret joins without an invitation.\n\nThe secret lives inside the APK, so anyone holding the APK can enroll an empty library of\ntheir own; they still cannot read another device's library. Off unless ENROLLMENT_SECRET\nis set. A wrong secret gets one generic answer, and repeated guessing locks the endpoint.",
+        "operationId": "enroll_device_pair_enroll_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EnrollRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Enroll Device",
         "tags": [
           "pairing"
         ]

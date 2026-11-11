@@ -238,7 +238,7 @@ export function useIndexController() {
   }, [phase]);
 
   return { phase, progress, issues, error, jobs, jobsOffset, setJobsOffset, choose, start, retry,
-    needsReallow, reallow,
+    needsReallow, reallow, consented: consented(),
     cancel: () => { stop.current = true; },
     disable: () => { stop.current = true; localStorage.removeItem(consentKey()); setPhase('paused'); } };
 }

@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from memora.api.deps import SettingsDep, current_user_id
-from memora.services.pairing import PairingStore, store
+from memora.services.pairing import AttemptLimiter, PairingStore, store
 
 router = APIRouter(tags=["pairing"])
 
@@ -157,6 +157,41 @@ async def claim_pairing(payload: PairingClaim, pairings: StoreDep) -> DeviceToke
             status.HTTP_400_BAD_REQUEST, "That pairing code is not valid. Show a new one."
         )
     return DeviceToken(device_token=token)
+
+
+class EnrollRequest(BaseModel):
+    secret: str = Field(min_length=1, max_length=256)
+
+
+_enroll_limiter = AttemptLimiter()
+
+
+def enroll_limiter() -> AttemptLimiter:
+    return _enroll_limiter
+
+
+@router.post("/pair/enroll", response_model=DeviceToken)
+async def enroll_device(
+    payload: EnrollRequest,
+    settings: SettingsDep,
+    pairings: StoreDep,
+    limiter: Annotated[AttemptLimiter, Depends(enroll_limiter)],
+) -> DeviceToken:
+    """A phone built with the enrollment secret joins without an invitation.
+
+    The secret lives inside the APK, so anyone holding the APK can enroll an empty library of
+    their own; they still cannot read another device's library. Off unless ENROLLMENT_SECRET
+    is set. A wrong secret gets one generic answer, and repeated guessing locks the endpoint.
+    """
+    if not settings.enrollment_secret:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Not found")
+    if limiter.locked():
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS, "Too many attempts. Try later.")
+    if not secrets.compare_digest(payload.secret, settings.enrollment_secret):
+        limiter.fail()
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "That enrollment secret is not valid.")
+    limiter.succeed()
+    return DeviceToken(device_token=pairings.enroll())
 
 
 @router.get("/pair/status", response_model=PairingStatus, dependencies=LocalOnly)

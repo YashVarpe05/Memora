@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Navigate, Outlet, Route, Routes as RouterRoutes, useLocation } from 'react-router-dom';
+import { Navigate, Outlet, Route, Routes as RouterRoutes, useLocation, useNavigate } from 'react-router-dom';
 
 import { Routes } from '@memora/core';
 
 import { AppShell } from '@/components/AppShell';
 import { PairPage } from '@/features/pairing/PairPage';
+import { useAutoEnroll } from '@/platform/useAutoEnroll';
 import { IndexContext, useIndexController } from '@/features/scan/useDeviceScan';
 import { ScanPage } from '@/features/scan/ScanPage';
 import { SearchView } from '@/features/search/SearchView';
@@ -43,6 +44,21 @@ function RequirePairing() {
     if (pairedServer()) void verifyPairing();
   }, []);
 
+  const enrollment = useAutoEnroll();
+  const { justEnrolled, acknowledge } = enrollment;
+  const navigate = useNavigate();
+  // A freshly enrolled phone lands on the Index screen, where one tap allows indexing. This is
+  // an explicit navigation after the first paint: returning <Navigate> raced the default
+  // Home -> Search redirect and the phone landed on Search instead.
+  useEffect(() => {
+    if (!justEnrolled) return;
+    navigate(Routes.Scan, { replace: true });
+    acknowledge();
+  }, [justEnrolled, acknowledge, navigate]);
+
+  if (enrollment.status === 'working') {
+    return <p role="status" className="flex h-full items-center justify-center p-8 text-ink-muted">Setting up this device…</p>;
+  }
   if (!pairedServer() && pathname !== Routes.Pair) {
     return <Navigate to={Routes.Pair} replace />;
   }

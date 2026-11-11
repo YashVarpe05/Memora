@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Routes } from '@memora/core';
 import { Button } from '@/components/ui/button';
 import { clearPairing, isNative, pairedServer, savePairing } from '@/platform/api';
+import { lastEnrollFailure } from '@/platform/enroll';
 import { claim, PairScanScreen } from './PairScanScreen';
 
 export function PairPage() {
@@ -56,6 +57,7 @@ export function PairPage() {
     <Button disabled={busy || !url || !code} onClick={() => void connect()}>Connect</Button>
     {!isNative() && ['localhost', '127.0.0.1'].includes(location.hostname) &&
       <Button variant="subtle" disabled={busy} onClick={() => void connect(true)}>Connect to local development server</Button>}
+    {lastEnrollFailure && !error && <p role="status" className="text-sm text-warn">Automatic setup did not work ({lastEnrollFailure}). Connect manually below.</p>}
     {error && <p role="alert" className="text-warn">{error}</p>}
     {isNative() && <PairScanScreen onPaired={() => navigate(Routes.Scan, { replace: true })} />}
   </div>;

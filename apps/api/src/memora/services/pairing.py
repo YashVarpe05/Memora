@@ -62,6 +62,17 @@ class PairingStore:
             self.db.execute("INSERT INTO devices VALUES (?, ?)", (digest(token), str(uuid4())))
         return token
 
+    def enroll(self) -> str:
+        """A new device with a new library, without an invitation code.
+
+        Only reachable behind the enrollment secret (see the router), so this is the same
+        outcome as a claimed code: one token, one empty library.
+        """
+        token = secrets.token_urlsafe(DEVICE_TOKEN_BYTES)
+        with self.db:
+            self.db.execute("INSERT INTO devices VALUES (?, ?)", (digest(token), str(uuid4())))
+        return token
+
     def identity(self, token: str | None) -> UUID | None:
         if not token:
             return None
@@ -104,3 +115,32 @@ def store() -> PairingStore:
         path = Path(get_settings().pairing_store)
         _store = PairingStore(str(path if path.is_absolute() else repo_root() / path))
     return _store
+
+
+class AttemptLimiter:
+    """Locks out guessing: after `limit` failures, refuse everything for `lockout` seconds.
+
+    Process-local and shared by every caller, on purpose. Behind a reverse proxy every client
+    shares one address, so per-IP limits would not limit anyone; the secret is long and
+    random, so a global lock only ever costs a legitimate user a short wait.
+    """
+
+    def __init__(self, limit: int = 10, lockout: float = 600.0, clock=None) -> None:
+        import time
+
+        self.limit, self.lockout = limit, lockout
+        self._clock = clock or time.monotonic
+        self._failures = 0
+        self._locked_until = 0.0
+
+    def locked(self) -> bool:
+        return self._clock() < self._locked_until
+
+    def fail(self) -> None:
+        self._failures += 1
+        if self._failures >= self.limit:
+            self._locked_until = self._clock() + self.lockout
+            self._failures = 0
+
+    def succeed(self) -> None:
+        self._failures = 0

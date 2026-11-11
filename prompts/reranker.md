@@ -1,6 +1,8 @@
 # Cross-encoder reranker: better ranking and a real "nothing found"
 
 Status: MEASURED and INTEGRATED for ranking only, default OFF (2026-11-11). Not used to refuse.
+**Recommendation: leave it off.** On the full search pipeline it gains one query per language group
+for about +1 s per search (see the correction below).
 
 ## Problem (measured, not assumed)
 On the owner's real 1,012-document library with the local E5 embedder (see
@@ -73,3 +75,27 @@ cached and checksummed (sha256 5daeca24...), never fetched at query time, at
 `~/.cache/memora-models/mmarco-mMiniLMv2-L12-H384-v1-1427fd65`. End to end with the real
 model on a small library: "train ticket" put the ticket documents first; first request 2.1 s
 (model load), later requests about 1 s on 4 CPU threads. Tests use a fake reranker.
+
+## Correction: the full pipeline, Hindi and Marathi (2026-11-11)
+The table above compared the reranker with DENSE order only. The product's real order already
+adds lexical matches and document-type boosts, which close most of that gap. Re-measured through
+the real `/search` pipeline (in-process, the owner's library, types and ranks only), reranker
+off vs on, first labelled hit:
+
+| queries | reranker | rank 1 | within top 5 | median time |
+|---|---|---|---|---|
+| English (20) | off | 14 | 18 | 0.64 s |
+| English (20) | on | 15 | 18 | 1.61 s |
+| Hindi, Marathi, Hinglish (23) | off | 13 | 16 | 0.62 s |
+| Hindi, Marathi, Hinglish (23) | on | 14 | 15 | 1.65 s |
+
+- The reranker fixes one query per group ("train ticket", one Hindi query), and it lowers
+  two Hindi queries from rank 4-6 to rank 10 ("रेल का टिकट"-type phrasings), losing one top-5
+  hit. A net gain of about one query in 20, for roughly 1 s more per search.
+- Dense-only (no hybrid) Hindi/Marathi queries are weak by themselves: rank 1 for 4 of 23
+  dense, 7 of 23 reranked. The hybrid pipeline reaches 13 of 23 without the reranker, mostly
+  because its document-type and word matching handles Devanagari type words.
+- 7 of the 23 Hindi/Marathi queries find no labelled document in the top 10 even with the
+  reranker; those are retrieval misses, not ordering.
+- Lesson recorded: always measure a re-ranking component on top of the pipeline that ships, not
+  on its first stage.
