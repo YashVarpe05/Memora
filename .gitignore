@@ -87,3 +87,4 @@ data/test-reports/
 # Synthetic browser-test screenshots and traces.
 apps/web/test-results/
 apps/web/playwright-report/
+backups/

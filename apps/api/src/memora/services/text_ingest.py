@@ -71,14 +71,11 @@ async def ingest_device_text(
     counter: TokenCounter,
 ) -> TextIngestResult:
     memories = MemoryRepository(session, user_id)
-    # Same per-document lock as a file upload, so two devices sending one document cannot
-    # both pass the existence check.
-    lock_key = int.from_bytes(
-        hashlib.sha256(f"{user_id}:{content_hash}".encode()).digest()[:8], "big", signed=True
-    )
-    await session.execute(sql_text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
-    existing = await memories.find_by_hash(content_hash)
-    if existing is not None:
+
+    async def already_indexed() -> TextIngestResult | None:
+        existing = await memories.find_by_hash(content_hash)
+        if existing is None:
+            return None
         await memories.attach_path(existing, device_path)
         return TextIngestResult(
             memory_id=existing.id,
@@ -88,6 +85,10 @@ async def ingest_device_text(
             identifiers_masked=0,
             deduplicated=True,
         )
+
+    # A known document skips the expensive work entirely.
+    if (known := await already_indexed()) is not None:
+        return known
 
     # Postgres text cannot hold NUL. A UTF-16 file decoded as UTF-8, or a noisy OCR pass,
     # produces them, and one such file must not fail with a 500.
@@ -120,6 +121,16 @@ async def ingest_device_text(
         if embedder is not None
         else [None] * len(text_chunks)
     )
+
+    # Embedding can take seconds on a CPU server, so the per-document lock is taken only now,
+    # just before writing. Same key as a file upload, so two devices sending one document
+    # cannot both create it; the loser re-checks and deduplicates instead.
+    lock_key = int.from_bytes(
+        hashlib.sha256(f"{user_id}:{content_hash}".encode()).digest()[:8], "big", signed=True
+    )
+    await session.execute(sql_text("SELECT pg_advisory_xact_lock(:key)"), {"key": lock_key})
+    if (raced := await already_indexed()) is not None:
+        return raced
 
     source_type = _source_type(mime_type)
     memory = await memories.create(

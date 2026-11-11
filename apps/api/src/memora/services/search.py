@@ -165,6 +165,8 @@ class DocumentResult:
     # forgetting a document because it was tidied away is the failure this product
     # exists to fix - so the result carries the fact rather than being dropped.
     removed_at: object | None = None
+    # The start of the matched chunk, for the reranker. Never sent to clients.
+    passage: str = ""
 
 
 @dataclass(frozen=True)
@@ -305,6 +307,7 @@ def to_results(scored: list[tuple[ChunkHit, float]]) -> list[DocumentResult]:
             has_thumbnail=hit.has_thumbnail,
             document_type=hit.document_type,
             removed_at=hit.removed_at,
+            passage=f"{hit.contextual_prefix} {hit.text}".strip()[:900],
         )
         for index, (hit, score) in enumerate(scored, start=1)
     ]

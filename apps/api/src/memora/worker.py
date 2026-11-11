@@ -80,6 +80,7 @@ async def process_one(user_id: UUID, *, dependencies: dict | None = None) -> boo
 
 
 async def run() -> None:
+    idle = 2.0
     while True:
         did_work = False
         identities = store().identities()
@@ -90,8 +91,13 @@ async def run() -> None:
                 did_work = await process_one(identity) or did_work
             except Exception:
                 logger.error("Index worker could not reach its storage; retrying.")
-        if not did_work:
-            await asyncio.sleep(2)
+        if did_work:
+            idle = 2.0
+        else:
+            # Nothing queued for any device: back off instead of opening an empty transaction
+            # per device every two seconds, but never wait long enough to feel slow.
+            await asyncio.sleep(idle)
+            idle = min(idle * 1.5, 6.0)
 
 
 if __name__ == "__main__":

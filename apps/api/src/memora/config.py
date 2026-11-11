@@ -38,6 +38,12 @@ class Settings(BaseSettings):
     local_embedding_model: str = "intfloat/multilingual-e5-base"
     local_embedding_revision: str = "d128750597153bb5987e10b1c3493a34e5a4502a"
     local_embedding_threads: int = 2
+    # Cross-encoder reranking of the top results (prompts/reranker.md). Ranking only, never
+    # refusal. Off by default: it needs the weights downloaded and about 0.9 s of CPU per search.
+    reranker: Literal["off", "local"] = "off"
+    reranker_model_path: str = "~/.cache/memora-models/mmarco-mMiniLMv2-L12-H384-v1-1427fd65"
+    reranker_top_n: int = 20
+    reranker_threads: int = 2
     # Weak-evidence floor on multilingual-e5-base's scale, which is not Gemini's: real hits
     # and unrelated queries both score 0.75-0.85, so this only means something together with
     # the lexical and document-type corroboration in the search router.

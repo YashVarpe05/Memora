@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import replace
+from functools import lru_cache
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
@@ -42,6 +43,7 @@ from memora.services.query_understanding import (
     build_query_understanding,
     passthrough,
 )
+from memora.services.reranker import LocalCrossEncoder, Reranker, rerank_results
 from memora.services.retrieval import (
     has_weak_evidence,
     has_weak_image_evidence,
@@ -170,6 +172,22 @@ ImageEmbedderDep = Annotated[ImageEmbedder | None, Depends(get_image_embedder)]
 StageOneDep = Annotated[QueryUnderstanding, Depends(get_query_understanding)]
 
 
+@lru_cache(maxsize=1)
+def _local_reranker(path: str, threads: int) -> Reranker:
+    return LocalCrossEncoder(path, threads)
+
+
+def get_reranker() -> Reranker | None:
+    """None unless RERANKER=local; tests override this with a fake."""
+    settings = get_settings()
+    if settings.reranker != "local":
+        return None
+    return _local_reranker(settings.reranker_model_path, settings.reranker_threads)
+
+
+RerankerDep = Annotated[Reranker | None, Depends(get_reranker)]
+
+
 @router.post("/search", response_model=SearchResponse)
 async def search(
     payload: SearchRequest,
@@ -178,6 +196,7 @@ async def search(
     embedder: EmbedderDep,
     stage_one: StageOneDep,
     image_embedder: ImageEmbedderDep,
+    reranker: RerankerDep,
 ) -> SearchResponse:
     filters: QueryFilters = passthrough(payload.query)
     stage1_ms: int | None = None
@@ -280,6 +299,7 @@ async def search(
                     has_thumbnail=hit.has_thumbnail,
                     document_type=hit.document_type,
                     removed_at=hit.removed_at,
+                    passage=f"{hit.contextual_prefix} {hit.text}".strip()[:900],
                 )
             )
             if len(lexical_results) >= payload.limit * 2:
@@ -383,6 +403,11 @@ async def search(
             replace(r, rank=i)
             for i, r in enumerate((r for r in ranked if r.document_type in (None, wanted_type)), 1)
         ]
+
+    # Order only: the reranker never decides whether to answer (see services/reranker.py).
+    if reranker is not None:
+        top_n = get_settings().reranker_top_n
+        ranked = await rerank_results(reranker, payload.query, ranked, top_n)
 
     # Raw similarity, not boosted - a filter guess must not talk the system out of
     # refusing. See boosted_score in services/search.py.
