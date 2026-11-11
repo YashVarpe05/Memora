@@ -56,10 +56,16 @@ public class TextExtractionPlugin extends Plugin {
     private TextRecognizer devanagari;
 
     private synchronized void recognisers() {
-        if (latin == null) {
-            latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        if (devanagari == null) {
             devanagari = TextRecognition.getClient(
                 new DevanagariTextRecognizerOptions.Builder().build());
+        }
+    }
+
+    /** Only the debug benchmark compares against the Latin model. */
+    private synchronized void latinRecogniser() {
+        if (latin == null) {
+            latin = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
         }
     }
 
@@ -78,6 +84,64 @@ public class TextExtractionPlugin extends Plugin {
                 call.reject("unsupported: " + error.getMessage());
             } catch (Exception error) {
                 call.reject("extract failed: " + error.getMessage(), error);
+            }
+        });
+    }
+
+    /**
+     * Debug builds only. Runs each recogniser separately on one file and reports its text and
+     * milliseconds, so the choice between them can be measured instead of guessed.
+     */
+    @PluginMethod
+    public void benchmark(PluginCall call) {
+        if ((getContext().getApplicationInfo().flags
+                & android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) == 0) {
+            call.reject("benchmark is available only in debug builds");
+            return;
+        }
+        final String path = call.getString("path");
+        final String mimeType = call.getString("mimeType", "");
+        if (path == null) {
+            call.reject("path is required");
+            return;
+        }
+        worker.execute(() -> {
+            try {
+                Uri uri = Uri.parse(path);
+                String mime = mimeType == null ? "" : mimeType.toLowerCase(Locale.ROOT);
+                recognisers();
+                latinRecogniser();
+                Bitmap bitmap;
+                if (mime.startsWith("image/")) {
+                    bitmap = decodeSampled(readAll(uri));
+                } else if (mime.equals("application/pdf")) {
+                    try (ParcelFileDescriptor fd =
+                             getContext().getContentResolver().openFileDescriptor(uri, "r");
+                         PdfRenderer renderer = new PdfRenderer(fd);
+                         PdfRenderer.Page pdfPage = renderer.openPage(0)) {
+                        int height = Math.max(1, Math.round(
+                            PDF_PAGE_WIDTH * (float) pdfPage.getHeight() / pdfPage.getWidth()));
+                        bitmap = Bitmap.createBitmap(PDF_PAGE_WIDTH, height, Bitmap.Config.ARGB_8888);
+                        new Canvas(bitmap).drawColor(Color.WHITE);
+                        pdfPage.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY);
+                    }
+                } else {
+                    throw new Unsupported(mime);
+                }
+                InputImage image = InputImage.fromBitmap(bitmap, 0);
+                JSObject result = new JSObject();
+                long t0 = System.nanoTime();
+                String latinText = Tasks.await(latin.process(image)).getText();
+                long t1 = System.nanoTime();
+                String devanagariText = Tasks.await(devanagari.process(image)).getText();
+                long t2 = System.nanoTime();
+                result.put("latinText", latinText);
+                result.put("latinMs", (t1 - t0) / 1_000_000);
+                result.put("devanagariText", devanagariText);
+                result.put("devanagariMs", (t2 - t1) / 1_000_000);
+                call.resolve(result);
+            } catch (Exception error) {
+                call.reject("benchmark failed: " + error.getMessage(), error);
             }
         });
     }
@@ -214,18 +278,16 @@ public class TextExtractionPlugin extends Plugin {
     }
 
     /**
-     * Devanagari text wins when it is really there; otherwise the Latin result. Merging both
-     * adds junk lines, because each model "reads" the other script as nonsense.
+     * One pass with the Devanagari model, which reads Latin text as well as Devanagari.
+     *
+     * Measured 2026-11-11: on known-text images it matched the old two-pass rule (word
+     * accuracy 0.97 vs 0.97; English 1.00, Hindi and Marathi 0.86-1.00, a Hindi-heading plus
+     * English-body card 1.00 vs 0.86 for Latin alone). On 82 real files from a Galaxy S23 FE
+     * the Latin model never found text the Devanagari model missed, and the two returned the
+     * same number of words, at about 195 ms each. Running both cost 393 ms per image; this
+     * costs about half, and no longer drops the English half of a bilingual document.
      */
     private String recognise(Bitmap bitmap) throws Exception {
-        InputImage image = InputImage.fromBitmap(bitmap, 0);
-        String latinText = Tasks.await(latin.process(image)).getText();
-        String devanagariText = Tasks.await(devanagari.process(image)).getText();
-        int devanagariChars = 0;
-        for (int i = 0; i < devanagariText.length(); i++) {
-            char c = devanagariText.charAt(i);
-            if (c >= '\u0900' && c <= '\u097F') devanagariChars++;
-        }
-        return devanagariChars >= 5 ? devanagariText.trim() : latinText.trim();
+        return Tasks.await(devanagari.process(InputImage.fromBitmap(bitmap, 0))).getText().trim();
     }
 }
