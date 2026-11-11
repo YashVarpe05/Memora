@@ -19,6 +19,7 @@ package ai.memora.app;
 import android.content.ContentResolver;
 import android.content.ContentUris;
 import android.content.Intent;
+import android.content.Context;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.Build;
@@ -41,7 +42,7 @@ import java.io.ByteArrayOutputStream;
 public class FileDiscoveryPlugin extends Plugin {
 
     /** Metadata only. Bytes are read later, and only for files that survive filtering. */
-    private static final String[] PROJECTION = {
+    static final String[] PROJECTION = {
         MediaStore.Files.FileColumns._ID,
         MediaStore.Files.FileColumns.DISPLAY_NAME,
         MediaStore.Files.FileColumns.SIZE,
@@ -111,7 +112,7 @@ public class FileDiscoveryPlugin extends Plugin {
     }
 
     /** Selection shared by scan() and count(), so the progress total matches what arrives. */
-    private static String selection() {
+    static String selection() {
         return MediaStore.Files.FileColumns.SIZE + " >= " + MIN_BYTES
             + " AND " + MediaStore.Files.FileColumns.SIZE + " <= ?"
             + " AND " + MediaStore.Files.FileColumns.DATE_MODIFIED + " > ?"
@@ -119,7 +120,7 @@ public class FileDiscoveryPlugin extends Plugin {
             + skipClause();
     }
 
-    private static String[] selectionArgs(long maxBytes, long sinceSeconds) {
+    static String[] selectionArgs(long maxBytes, long sinceSeconds) {
         String[] args = new String[2 + SKIP_PATH_PATTERNS.length];
         args[0] = String.valueOf(maxBytes);
         args[1] = String.valueOf(sinceSeconds);
@@ -222,7 +223,7 @@ public class FileDiscoveryPlugin extends Plugin {
         JSArray files = new JSArray();
         Uri collection = MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL);
 
-        try (Cursor cursor = pagedQuery(collection, selection(),
+        try (Cursor cursor = pagedQuery(getContext(), collection, selection(),
                 selectionArgs(maxBytes, sinceSeconds), limit, offset)) {
             if (cursor == null) throw new IllegalStateException("Storage could not be enumerated");
             if (cursor != null) {
@@ -273,9 +274,9 @@ public class FileDiscoveryPlugin extends Plugin {
      * The legacy path is kept for API < 30, where the Bundle constants do not exist and
      * the string form is the only option.
      */
-    private Cursor pagedQuery(Uri collection, String selection, String[] args,
+    static Cursor pagedQuery(Context context, Uri collection, String selection, String[] args,
                               int limit, int offset) {
-        ContentResolver resolver = getContext().getContentResolver();
+        ContentResolver resolver = context.getContentResolver();
         String sort = MediaStore.Files.FileColumns.DATE_MODIFIED + " DESC, "
             + MediaStore.Files.FileColumns._ID + " DESC";
 

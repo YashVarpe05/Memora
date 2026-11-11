@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import { apiFetch } from '@/platform/api';
+import { isLocalMode } from '@/platform/localMode';
 
 import type { components } from '@memora/core/types/api';
 
@@ -42,6 +43,8 @@ const EMPTY: SearchState = {
 };
 
 async function post(query: string, stage1: boolean, signal: AbortSignal): Promise<SearchResponse> {
+  // No server: the phone answers from its own index.
+  if (isLocalMode()) return (await import('@/platform/localIndex.native')).localIndex.search(query, 10);
   // POST, never GET: "find my aadhaar card" is a personal description and a GET would put
   // it in the URL, the browser history, and every access log in between.
   // apiFetch, not fetch: on a paired device this resolves to the laptop's LAN

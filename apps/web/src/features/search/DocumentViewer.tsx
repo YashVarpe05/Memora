@@ -3,6 +3,8 @@ import { useEffect, useRef, useState } from 'react';
 import { apiFetch, isNative } from '@/platform/api';
 import { AndroidFileDiscovery } from '@/platform/discovery.native';
 import { useAuthedMedia } from '@/platform/useAuthedMedia';
+import { isLocalMode } from '@/platform/localMode';
+import { localUriFor } from '@/platform/localIndex.native';
 import type { SearchResult } from './useSearch';
 
 export function DocumentViewer({ result, onClose }: { result: SearchResult; onClose: () => void }) {
@@ -14,7 +16,8 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
   const [error, setError] = useState<string | null>(null);
   const isPdf = result.source_type === 'pdf';
   const isImage = result.source_type === 'image';
-  const media = useAuthedMedia(`/api${result.file_url}`);
+  const local = isLocalMode();
+  const media = useAuthedMedia(local ? null : `/api${result.file_url}`);
   // A document found on this phone is indexed from text, so the server holds no file. The
   // phone that found it still has it and opens it itself.
   const [localPath, setLocalPath] = useState<string | null>(null);
@@ -22,6 +25,7 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
   const [localError, setLocalError] = useState<string | null>(null);
   const serverFileMissing = media.failed || error !== null;
   useEffect(() => {
+    if (local) { setLocalPath(localUriFor(result.memory_id)); return; }
     if (!isNative() || !serverFileMissing) return;
     let cancelled = false;
     void apiFetch(`/api/memories/${result.memory_id}/device-paths`).then(async response => {
@@ -30,7 +34,7 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
       if (!cancelled) setLocalPath(paths.find(path => path.startsWith('content://')) ?? null);
     }).catch(() => undefined);
     return () => { cancelled = true; };
-  }, [serverFileMissing, result.memory_id]);
+  }, [serverFileMissing, result.memory_id, local]);
   useEffect(() => {
     if (!localPath || !isImage) return;
     let objectUrl: string | null = null;
@@ -72,7 +76,7 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
     return () => { window.removeEventListener('keydown', keyboard); previous?.focus({ preventScroll: true }); };
   }, [onClose]);
   useEffect(() => {
-    if (!isPdf) return;
+    if (!isPdf || local) return;
     const controller = new AbortController();
     let objectUrl: string | null = null;
     setPreview(null); setError(null);
@@ -88,7 +92,7 @@ export function DocumentViewer({ result, onClose }: { result: SearchResult; onCl
         if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Preview unavailable.');
       });
     return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
-  }, [isPdf, page, result.memory_id]);
+  }, [isPdf, page, result.memory_id, local]);
   const src = isPdf ? preview : (media.src ?? localSrc);
   return <div ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-label={result.document_label ?? result.title}
     className="fixed inset-0 z-50 flex flex-col bg-canvas">

@@ -7,6 +7,8 @@ import { AndroidTextExtractor } from '@/platform/textExtraction.native';
 import { indexOnDevice } from './deviceText';
 import { apiFetch, isNative, pairedServer } from '@/platform/api';
 import { readState, writeState } from '@/platform/indexStore';
+import { isLocalMode, localConsent, setLocalConsent } from '@/platform/localMode';
+import { localIndex } from '@/platform/localIndex.native';
 
 type Job = components['schemas']['JobResponse'];
 type Jobs = components['schemas']['JobsResponse'];
@@ -28,7 +30,8 @@ export function useIndexController() {
   const choosing = useRef(false);
   const stop = useRef(false);
   const consentKey = () => `memora.online-consent:${pairedServer()?.url}:${pairedServer()?.token.slice(0, 16)}`;
-  const consented = () => localStorage.getItem(consentKey()) === 'yes';
+  const consented = () => (isLocalMode() ? localConsent() : localStorage.getItem(consentKey()) === 'yes');
+  const connected = () => isLocalMode() || pairedServer() !== null;
 
   async function refreshJobs() {
     const connection = pairedServer();
@@ -46,7 +49,8 @@ export function useIndexController() {
   useEffect(() => { void refreshJobs(); }, [jobsOffset]);
 
   async function start(_mode: ScanMode = 'full') {
-    if (active.current || !pairedServer() || !consented()) return;
+    if (active.current || !connected() || !consented()) return;
+    if (isLocalMode()) { await startLocal(); return; }
     active.current = true;
     // The scan only runs while the app is in front. Keep the screen awake meanwhile, or the
     // phone sleeps a few minutes in and silently stops a long first scan.
@@ -162,12 +166,54 @@ export function useIndexController() {
     }
   }
 
+  /** No server: read each new or changed file on the phone and keep its masked text in the phone's own index. */
+  async function startLocal() {
+    active.current = true;
+    let awake: { release(): Promise<void> } | null = null;
+    try { awake = await navigator.wakeLock?.request('screen') ?? null; } catch { /* optional */ }
+    stop.current = false;
+    setError(null); setIssues([]); setPhase('scanning');
+    setProgress({ seen: 0, queued: 0, known: 0, failed: 0 });
+    const paths: string[] = [];
+    let failed = false;
+    try {
+      const known = await localIndex.known();
+      for await (const file of discovery.current.scan({ limit: Number.MAX_SAFE_INTEGER })) {
+        if (stop.current) break;
+        paths.push(file.path);
+        const fingerprint = `${file.size}:${file.revision ?? file.modifiedAt}`;
+        setProgress(p => ({ ...p, seen: p.seen + 1 }));
+        if (known[file.path] === fingerprint) { setProgress(p => ({ ...p, known: p.known + 1 })); continue; }
+        try {
+          const problem = unsupported(file);
+          if (problem) continue;
+          const extracted = await extractor.current!.extract(file.path, file.mimeType);
+          if (!extracted) continue;
+          await localIndex.upsert(file, fingerprint, extracted);
+          setProgress(p => ({ ...p, queued: p.queued + 1 }));
+        } catch (err) {
+          failed = true;
+          setProgress(p => ({ ...p, failed: p.failed + 1 }));
+          setIssues(p => [...p.slice(-49), `${file.name}: ${err instanceof Error ? err.message : 'Could not read this file.'}`]);
+        }
+      }
+      if (!stop.current) await localIndex.prune(paths);
+      setPhase(stop.current ? 'paused' : failed ? 'attention' : 'done');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Indexing interrupted. Rescan to continue.');
+      setPhase('error');
+    } finally {
+      active.current = false;
+      void awake?.release().catch(() => undefined);
+    }
+  }
+
   async function choose() {
     if (active.current || choosing.current) return;
     choosing.current = true;
     setError(null);
     try {
-      localStorage.setItem(consentKey(), 'yes');
+      if (isLocalMode()) { setLocalConsent(true); void localIndex.setBackground(true).catch(() => undefined); } else localStorage.setItem(consentKey(), 'yes');
       const permission = await discovery.current.requestPermission();
       if (permission === 'granted') await start();
       else setPhase('permission');
@@ -204,8 +250,10 @@ export function useIndexController() {
   latest.current = { start, refreshJobs };
   useEffect(() => {
     stop.current = false;
+    // Android drops scheduled jobs when the app is force-stopped or updated, so re-register on launch.
+    if (isLocalMode() && localConsent()) void localIndex.setBackground(true).catch(() => undefined);
     const resume = async () => {
-      if (!pairedServer() || !consented() || active.current || choosing.current || stop.current || document.hidden) return;
+      if (!connected() || !consented() || active.current || choosing.current || stop.current || document.hidden) return;
       if (discovery.current instanceof BrowserFileDiscovery) {
         const restored = await discovery.current.restore();
         setNeedsReallow(await discovery.current.pendingFolders() > 0);
@@ -240,7 +288,7 @@ export function useIndexController() {
   return { phase, progress, issues, error, jobs, jobsOffset, setJobsOffset, choose, start, retry,
     needsReallow, reallow, consented: consented(),
     cancel: () => { stop.current = true; },
-    disable: () => { stop.current = true; localStorage.removeItem(consentKey()); setPhase('paused'); } };
+    disable: () => { stop.current = true; if (isLocalMode()) { setLocalConsent(false); void localIndex.setBackground(false).catch(() => undefined); } else localStorage.removeItem(consentKey()); setPhase('paused'); } };
 }
 
 function unsupported(file: DiscoveredFile): string | null {

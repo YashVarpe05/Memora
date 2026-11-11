@@ -26,6 +26,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(FileDiscoveryPlugin.class);
         registerPlugin(TextExtractionPlugin.class);
+        registerPlugin(LocalIndexPlugin.class);
         super.onCreate(savedInstanceState);
     }
 }

@@ -12,6 +12,15 @@ phone and it connects and starts indexing by itself (no laptop, USB or QR).
 | Encrypted backup, verify, restore into a throwaway database | verified, 2026-11-11 |
 | Running on ARM (Oracle's free VM), a real public domain, a real Let's Encrypt certificate, a phone over mobile data | **not verified**: needs your accounts |
 
+## No server at all: local mode
+
+An APK built **without** a server address (`pnpm build` with no `VITE_MEMORA_SERVER`) works alone. A new
+phone needs no laptop, USB, QR or account: install, open, tap **Allow scanning this phone**, and allow file
+access. The phone reads documents itself (Hindi and Marathi included), hides Aadhaar and PAN numbers, and keeps
+the words in a private index on the phone. A background job (about every 6 hours, battery not low, app closed)
+indexes new files. Search matches words and the kind of document, not meaning; nothing is uploaded and other
+devices cannot search it. Verified on an Android emulator with no server running (2026-11-12).
+
 ## 1. Get a free always-on server (you do this once, about 20 minutes)
 
 I cannot create accounts or enter payment details for you. Cheapest zero-cost path:

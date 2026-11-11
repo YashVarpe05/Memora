@@ -10,6 +10,7 @@ import { IndexContext, useIndexController } from '@/features/scan/useDeviceScan'
 import { ScanPage } from '@/features/scan/ScanPage';
 import { SearchView } from '@/features/search/SearchView';
 import { onPairingLost, pairedServer, verifyPairing } from '@/platform/api';
+import { isLocalMode, localConsent } from '@/platform/localMode';
 import {
   AskPage,
   CapturePage,
@@ -56,10 +57,17 @@ function RequirePairing() {
     acknowledge();
   }, [justEnrolled, acknowledge, navigate]);
 
+  // With no server the phone works by itself, so a first launch goes straight to the one
+  // consent tap on the Index screen instead of a pairing page.
+  const firstLocalRun = isLocalMode() && !localConsent();
+  useEffect(() => {
+    if (firstLocalRun && pathname !== Routes.Scan) navigate(Routes.Scan, { replace: true });
+  }, [firstLocalRun, pathname, navigate]);
+
   if (enrollment.status === 'working') {
     return <p role="status" className="flex h-full items-center justify-center p-8 text-ink-muted">Setting up this device…</p>;
   }
-  if (!pairedServer() && pathname !== Routes.Pair) {
+  if (!pairedServer() && !isLocalMode() && pathname !== Routes.Pair) {
     return <Navigate to={Routes.Pair} replace />;
   }
   return <Outlet />;

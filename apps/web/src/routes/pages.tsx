@@ -7,6 +7,8 @@ import { Routes } from '@memora/core';
 import { Button } from '@/components/ui/button';
 import { ChatView } from '@/features/chat/ChatView';
 import { apiFetch, pairedServer } from '@/platform/api';
+import { isLocalMode } from '@/platform/localMode';
+import { localIndex } from '@/platform/localIndex.native';
 import { useNavigator } from '@/platform/navigator';
 
 export function AskPage() {
@@ -72,8 +74,12 @@ export function SettingsPage() {
   const [documents, setDocuments] = useState<number | null>(null);
 
   useEffect(() => {
-    if (!paired) return;
     let live = true;
+    if (isLocalMode()) {
+      void localIndex.documents().then(n => { if (live) setDocuments(n); }).catch(() => undefined);
+      return () => { live = false; };
+    }
+    if (!paired) return;
     void apiFetch('/api/index/coverage')
       .then(async (response) => (response.ok ? await response.json() as { available_documents: number } : null))
       .then((body) => { if (live && body) setDocuments(body.available_documents); })
@@ -89,7 +95,7 @@ export function SettingsPage() {
       <div className="flex flex-col gap-2 rounded-card border border-line bg-surface p-3">
         <span className="text-sm font-medium text-ink">This device</span>
         <span className="text-sm text-ink">
-          {documents === null ? (paired ? 'Checking your library…' : 'Not connected.')
+          {documents === null ? (paired || isLocalMode() ? 'Checking your library…' : 'Not connected.')
             : `${documents} ${documents === 1 ? 'document is' : 'documents are'} searchable here.`}
         </span>
         <span className="text-xs text-ink-muted">Each device keeps its own library. Other devices cannot search this one.</span>
@@ -102,7 +108,7 @@ export function SettingsPage() {
       <div className="flex flex-col gap-2 rounded-card border border-line bg-surface p-3">
         <span className="text-sm font-medium text-ink">Connection</span>
         <span className="text-xs text-ink-muted">
-          {host ? `Connected to ${host}.` : 'Not connected to a Memora server.'}
+          {host ? `Connected to ${host}.` : isLocalMode() ? 'Working on this phone only. Nothing leaves it.' : 'Not connected to a Memora server.'}
         </span>
         <span className="text-xs text-ink-muted">
           Disconnecting does not erase stored documents. Reinstalling the app starts a new, empty library.
